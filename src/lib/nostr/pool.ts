@@ -1,0 +1,43 @@
+import { SimplePool } from 'nostr-tools/pool'
+
+// One shared pool for the whole app so relay connections are reused.
+export const pool = new SimplePool({ enablePing: true, enableReconnect: true })
+
+// VITE_RELAYS (comma-separated) replaces every default, e.g. to use the local dev relay.
+const OVERRIDE = import.meta.env.VITE_RELAYS?.split(',').map((r: string) => r.trim()).filter(Boolean) as string[] | undefined
+
+// Used before we know the user's own relay list (NIP-65), and to discover it.
+export const DEFAULT_RELAYS = OVERRIDE ?? ['wss://relay.silvamor.com', 'wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net']
+
+// Indexer relays that are good at answering "what is this pubkey's profile / relay list?"
+export const DISCOVERY_RELAYS = OVERRIDE ?? ['wss://purplepag.es', 'wss://user.kindpag.es', ...DEFAULT_RELAYS]
+
+/** Relays we always read game events from, on top of the user's own read relays. */
+export const GAME_RELAYS = DEFAULT_RELAYS
+
+// Relays commonly used by NIP-46 remote signers (Amber, nsec.app, ...). Several, so the
+// login keeps working when one is down. (relay.silvamor.com is whitelisted, so signers
+// couldn't publish their replies there.)
+export const NIP46_RELAYS = OVERRIDE ?? ['wss://relay.nsec.app', 'wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net']
+
+export function normalizeRelayUrl(input: string): string | null {
+  let url = input.trim()
+  if (!url) return null
+  if (!/^wss?:\/\//i.test(url)) url = `wss://${url}`
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'wss:' && parsed.protocol !== 'ws:') return null
+    // Drop a lone trailing slash so "wss://a.com/" and "wss://a.com" are the same relay.
+    return parsed.toString().replace(/\/$/, '')
+  } catch {
+    return null
+  }
+}
+
+/** Publish to several relays; resolves with which relays accepted the event. */
+export async function publishTo(relays: string[], event: Parameters<SimplePool['publish']>[1]) {
+  const results = await Promise.allSettled(pool.publish(relays, event, { maxWait: 6000 }))
+  const ok = relays.filter((_, i) => results[i].status === 'fulfilled')
+  if (ok.length === 0) throw new Error('No relay accepted the event. Check your relay list.')
+  return ok
+}

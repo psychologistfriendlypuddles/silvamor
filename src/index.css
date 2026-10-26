@@ -1,0 +1,76 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/fredoka';
+
+/* Chess pieces only: a 6 KB subset of Noto Sans Symbols 2 (OFL, see assets/fonts/chess-pieces.LICENSE). */
+@font-face {
+  font-family: 'Chess Pieces';
+  src: url('./assets/fonts/chess-pieces.woff2') format('woff2');
+  unicode-range: U+2654-265F;
+  font-display: block;
+}
+
+@theme {
+  --font-sans: 'Fredoka Variable', ui-rounded, system-ui, sans-serif;
+  /* Headings: the logo's typeface, Fredoka Bold. */
+  --font-display: 'Fredoka Variable', ui-rounded, system-ui, sans-serif;
+  --font-chess: 'Chess Pieces', 'Noto Sans Symbols 2', 'DejaVu Sans', serif;
+
+  /* Night-sky base with candy accents. */
+  --color-night-950: #120b2b;
+  --color-night-900: #1e1442;
+  --color-night-800: #2a1d5c;
+  --color-night-700: #3a2a7a;
+  --color-night-600: #4d3a9a;
+
+  --color-grape: #8b5cf6;
+  --color-bubblegum: #ec4899;
+  --color-lemon: #fde047;
+  --color-mint: #5eead4;
+  --color-tangerine: #fb923c;
+  --color-sky: #38bdf8;
+
+  --animate-float: float 9s ease-in-out infinite;
+  --animate-wiggle: wiggle 0.5s ease-in-out;
+
+  @keyframes float {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(30px, -40px) scale(1.08); }
+    66% { transform: translate(-25px, 20px) scale(0.95); }
+  }
+  @keyframes wiggle {
+    0%, 100% { transform: rotate(0); }
+    25% { transform: rotate(-6deg); }
+    75% { transform: rotate(6deg); }
+  }
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100dvh;
+  }
+  body {
+    @apply bg-night-950 font-sans text-white antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+  ::selection {
+    @apply bg-bubblegum/60;
+  }
+}
+
+/* Headings echo the lower-case wordmark. */
+.font-display {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-transform: lowercase;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

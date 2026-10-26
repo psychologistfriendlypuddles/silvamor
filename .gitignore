@@ -1,0 +1,14 @@
+node_modules
+dist
+dev-dist
+*.local
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+dist-e2e
+dist-e2e-wagers
+test-results
+playwright-report
+push-data
+push/dist
+push-data-e2e
