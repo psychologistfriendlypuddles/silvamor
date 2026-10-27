@@ -17,6 +17,8 @@ export function RelaysPage() {
   const [input, setInput] = useState('')
   const [saving, setSaving] = useState(false)
   const dirty = JSON.stringify(relays) !== JSON.stringify(published)
+  // Silvamor's relay has its own card above, so it isn't listed again among yours.
+  const yours = relays.filter((r) => r.url !== HOME_RELAY)
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -65,9 +67,15 @@ export function RelaysPage() {
         </Button>
       </form>
 
+      {yours.length === 0 && (
+        <Card className="mb-4 text-sm text-white/60">
+          Your relay list only has Silvamor's relay. Add the relays you use in other Nostr apps, then save.
+        </Card>
+      )}
+
       <div className="flex flex-col gap-2">
         <AnimatePresence initial={false}>
-          {relays.map((relay) => (
+          {yours.map((relay) => (
             <RelayRow key={relay.url} relay={relay} onToggle={(f) => toggle(relay.url, f)} onRemove={() => remove(relay.url)} />
           ))}
         </AnimatePresence>

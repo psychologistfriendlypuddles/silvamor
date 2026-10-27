@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { DEFAULT_RELAYS, DISCOVERY_RELAYS, GAME_RELAYS, normalizeRelayUrl, pool, publishTo } from '../lib/nostr/pool'
+import { DEFAULT_RELAYS, DISCOVERY_RELAYS, GAME_RELAYS, HOME_RELAY, normalizeRelayUrl, pool, publishTo } from '../lib/nostr/pool'
 import { RELAY_LIST_KIND, buildRelayListEvent, parseRelayList, type RelayEntry } from '../lib/nostr/relayList'
 import type { AppSigner } from '../lib/nostr/signers'
 
@@ -54,6 +54,7 @@ export const useRelays = create<RelayState>((set, get) => ({
   add(input) {
     const url = normalizeRelayUrl(input)
     if (!url) throw new Error('Relay addresses look like wss://relay.example.com')
+    if (url === HOME_RELAY) throw new Error("Silvamor's relay is always on, so there's no need to add it.")
     if (get().relays.some((r) => r.url === url)) throw new Error('That relay is already in your list.')
     set({ relays: [...get().relays, { url, read: true, write: true }] })
   },

@@ -14,14 +14,15 @@ const OVERRIDE = import.meta.env.VITE_RELAYS?.split(',').map((r: string) => r.tr
  */
 export const HOME_RELAY: string = import.meta.env.VITE_HOME_RELAY ?? OVERRIDE?.[0] ?? 'wss://relay.silvamor.com'
 
-// Used before we know the user's own relay list (NIP-65), and to discover it.
+// The starter list for players who haven't published a relay list (NIP-65) yet.
 export const DEFAULT_RELAYS = [...new Set([HOME_RELAY, ...(OVERRIDE ?? ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net'])])]
 
-// Indexer relays that are good at answering "what is this pubkey's profile / relay list?"
-export const DISCOVERY_RELAYS = OVERRIDE ? DEFAULT_RELAYS : ['wss://purplepag.es', 'wss://user.kindpag.es', ...DEFAULT_RELAYS]
+// Where profiles and relay lists are looked up and published, so other Nostr apps find them too:
+// indexer relays that answer "what is this pubkey's profile / relay list?", plus the home relay.
+export const DISCOVERY_RELAYS = OVERRIDE ? DEFAULT_RELAYS : ['wss://purplepag.es', 'wss://user.kindpag.es', HOME_RELAY]
 
-/** Relays we always read and write Silvamor's events on, on top of the user's own: the home relay first. */
-export const GAME_RELAYS = DEFAULT_RELAYS
+/** Relays we always read and write Silvamor's events on, on top of the user's own: just the home relay. */
+export const GAME_RELAYS = [HOME_RELAY]
 
 // Relays commonly used by NIP-46 remote signers (Amber, nsec.app, ...). Several, so the
 // login keeps working when one is down. (relay.silvamor.com is whitelisted, so signers

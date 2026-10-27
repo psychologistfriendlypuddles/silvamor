@@ -130,7 +130,7 @@ export const useModeration = create<ModerationState>((set, get) => ({
     const event = await signer.signEvent(buildSettings(await signer.nip44Encrypt(me, JSON.stringify(settings))))
     set({ settings, settingsAt: event.created_at })
     writeCache(me, event.created_at, settings)
-    await publishTo([...new Set([...gameWriteRelays(), ...DISCOVERY_RELAYS])], event)
+    await publishTo(gameWriteRelays(), event)
   },
 
   async report(signer, sprite, reason, note) {

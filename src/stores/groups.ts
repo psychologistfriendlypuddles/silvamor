@@ -53,7 +53,7 @@ export const useGroups = create<GroupsState>((set, get) => ({
   async save(signer, input) {
     const group = { ...input, id: input.id ?? bytesToHex(crypto.getRandomValues(new Uint8Array(8))) }
     const event = await signer.signEvent(buildGroup(group))
-    await publishTo([...new Set([...gameWriteRelays(), ...DISCOVERY_RELAYS])], event)
+    await publishTo(gameWriteRelays(), event)
     const saved = { ...group, createdAt: event.created_at }
     set({ groups: { ...get().groups, [saved.id]: saved } })
     return saved
@@ -61,7 +61,7 @@ export const useGroups = create<GroupsState>((set, get) => ({
 
   async remove(signer, pubkey, id) {
     const { deletion, tombstone } = buildGroupDeletion(pubkey, id)
-    const relays = [...new Set([...gameWriteRelays(), ...DISCOVERY_RELAYS])]
+    const relays = gameWriteRelays()
     await publishTo(relays, await signer.signEvent(tombstone))
     await publishTo(relays, await signer.signEvent(deletion)).catch(() => {})
     const groups = { ...get().groups }
