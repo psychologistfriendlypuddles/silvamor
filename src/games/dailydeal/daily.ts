@@ -43,20 +43,21 @@ export function untilNextDeal(now: Date) {
 }
 
 // A run in progress is kept in this browser only, as its moves, so a reload picks it up again.
-const key = (seed: string) => `dailydeal:${seed}`
+// It's per account: another login on the same browser gets its own run.
+const key = (pubkey: string, seed: string) => `dailydeal:${pubkey}:${seed}`
 
-export function loadMoves(seed: string): unknown[] {
+export function loadMoves(pubkey: string, seed: string): unknown[] {
   try {
-    const saved = JSON.parse(localStorage.getItem(key(seed)) ?? '[]')
+    const saved = JSON.parse(localStorage.getItem(key(pubkey, seed)) ?? '[]')
     return Array.isArray(saved) ? saved : []
   } catch {
     return []
   }
 }
 
-export function saveMoves(seed: string, moves: DailyDealMove[]) {
+export function saveMoves(pubkey: string, seed: string, moves: DailyDealMove[]) {
   try {
-    localStorage.setItem(key(seed), JSON.stringify(moves))
+    localStorage.setItem(key(pubkey, seed), JSON.stringify(moves))
   } catch {
     // Storage can be full or blocked; the run still plays, it just won't survive a reload.
   }

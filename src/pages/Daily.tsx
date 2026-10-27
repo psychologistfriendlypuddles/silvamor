@@ -24,10 +24,10 @@ import { dayOf, fetchDayBlock, loadMoves, saveMoves, seedFor, untilNextDeal } fr
 type Rules = ReturnType<typeof dailyDealRules>
 
 /** Replays saved moves, keeping the ones that still apply (a bad save just ends early). */
-function restore(rules: Rules, seed: string): DailyDealMove[] {
+function restore(rules: Rules, pubkey: string, seed: string): DailyDealMove[] {
   const moves: DailyDealMove[] = []
   let state = rules.init()
-  for (const raw of loadMoves(seed)) {
+  for (const raw of loadMoves(pubkey, seed)) {
     try {
       const move = rules.parseMove(raw)
       state = rules.apply(state, move)
@@ -44,6 +44,7 @@ const statesOf = (rules: Rules, moves: unknown[]) =>
   moves.reduce<DailyDealState[]>((all, m) => [...all, rules.apply(all[all.length - 1], rules.parseMove(m))], [rules.init()])
 
 export function DailyPage() {
+  const { pubkey } = useSigner()
   const [day] = useState(() => dayOf(new Date()))
   // The seed block: undefined while asking, null until it's mined.
   const [block, setBlock] = useState<Block | null | undefined>(undefined)
@@ -76,7 +77,8 @@ export function DailyPage() {
     <div>
       <PageTitle emoji="🃏" title="Daily Deal" subtitle={`Everyone gets the same cards and perks today (${day}). Make your hands count.`} />
       {block ? (
-        <Run day={day} block={block} />
+        // Keyed by account, so switching logins starts that account's own run.
+        <Run key={pubkey} day={day} block={block} />
       ) : (
         <Card className="mx-auto flex max-w-xl flex-col items-center gap-3 py-10 text-center">
           {unreachable ? <Bitcoin className="size-10 text-tangerine" /> : <Spinner />}
@@ -103,7 +105,7 @@ function Run({ day, block }: { day: string; block: Block }) {
 
   const seed = useMemo(() => seedFor(day, block.hash), [day, block])
   const rules = useMemo(() => dailyDealRules(seed), [seed])
-  const [moves, setMoves] = useState(() => restore(rules, seed))
+  const [moves, setMoves] = useState(() => restore(rules, pubkey, seed))
   const states = useMemo(() => statesOf(rules, moves), [rules, moves])
   const state = states[states.length - 1]
   const finished = !!rules.outcome(state)
@@ -141,7 +143,7 @@ function Run({ day, block }: { day: string; block: Block }) {
     }
     const next = [...moves, move]
     setMoves(next)
-    saveMoves(seed, next)
+    saveMoves(pubkey, seed, next)
   }
 
   // A published run (maybe from another device) is the one that counts.
