@@ -6,7 +6,7 @@ import { bytesToHex } from 'nostr-tools/utils'
 import { createNostrConnectURI } from 'nostr-tools/nip46'
 import { ArrowLeft, Check, Copy, KeyRound, Puzzle, Smartphone, Sparkles, TriangleAlert } from 'lucide-react'
 import { deviceSignerKey, useSession } from '../stores/session'
-import { NIP46_RELAYS } from '../lib/nostr/pool'
+import { NIP46_RELAYS, pool } from '../lib/nostr/pool'
 import { NIP46_PERMS } from '../lib/nostr/signers'
 import { toast } from '../stores/toast'
 import { copyText } from '../lib/clipboard'
@@ -164,6 +164,9 @@ function SignerLogin() {
   const [bunkerInput, setBunkerInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [relayTrouble, setRelayTrouble] = useState(false)
+  // Relays only pass the signer's answer on to whoever is listening right then, so a scan before
+  // we're listening is lost: the QR code shows once we're connected to a connection relay.
+  const [ready, setReady] = useState(false)
 
   // Show a nostrconnect:// QR code and wait for a signer app to answer it.
   useEffect(() => {
@@ -174,7 +177,11 @@ function SignerLogin() {
     const listen = async () => {
       for (let failures = 1; !abort.signal.aborted; failures++) {
         try {
-          await loginNostrConnect(clientSecret, uri, abort.signal)
+          await Promise.any(NIP46_RELAYS.map((r) => pool.ensureRelay(r, { connectionTimeout: 8000 })))
+          if (abort.signal.aborted) return
+          const login = loginNostrConnect(clientSecret, uri, abort.signal)
+          setReady(true)
+          await login
           return
         } catch {
           if (abort.signal.aborted) return
@@ -204,18 +211,19 @@ function SignerLogin() {
       <h2 className="text-xl font-display">Connect a signer app</h2>
       <p className="text-sm text-white/60">Scan with your signer app, or tap the button if the signer is on this phone.</p>
       <div className="mx-auto flex size-60 items-center justify-center overflow-hidden rounded-3xl bg-white p-3">
-        {qr ? <img src={qr} alt="Nostr Connect QR code" className="size-full" /> : <Spinner />}
+        {qr && ready ? <img src={qr} alt="Nostr Connect QR code" className="size-full" /> : <Spinner />}
       </div>
       <div className="flex items-center justify-center gap-2 text-sm text-white/50">
-        <Spinner className="size-4" /> Waiting for your signer…
+        <Spinner className="size-4" /> {ready ? 'Waiting for your signer…' : 'Connecting…'}
       </div>
       {relayTrouble && (
         <p className="-mt-2 text-center text-xs text-tangerine">Having trouble reaching the connection relays. Still trying…</p>
       )}
       <div className="grid grid-cols-2 gap-2">
         <a
-          href={uri}
-          className="inline-flex items-center justify-center rounded-2xl bg-night-700 px-5 py-3 font-semibold transition-colors hover:bg-night-600"
+          href={ready ? uri : undefined}
+          aria-disabled={!ready}
+          className="inline-flex aria-disabled:pointer-events-none aria-disabled:opacity-50 items-center justify-center rounded-2xl bg-night-700 px-5 py-3 font-semibold transition-colors hover:bg-night-600"
         >
           Open signer app
         </a>
