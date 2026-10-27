@@ -6,9 +6,11 @@ dev-dist
 .vscode/*
 !.vscode/extensions.json
 dist-e2e
-dist-e2e-wagers
 test-results
 playwright-report
 push-data
 push/dist
+guard/dist
+# Your relay's config, merged from deploy/nostr-rs-relay.toml (see deploy/compose.yaml)
+deploy/config.toml
 push-data-e2e

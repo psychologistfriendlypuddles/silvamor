@@ -53,7 +53,7 @@ export function PushCard() {
         <BellRing className="mt-0.5 size-5 shrink-0 text-lemon" />
         <div className="min-w-0 flex-1">
           <p className="font-semibold">When Silvamor is closed</p>
-          <p className="text-sm text-white/55">Get a push notification on this device for your turn, invites, strikes and more.</p>
+          <p className="text-sm text-white/55">Get a push notification on this device when a friend beats your Daily Deal score.</p>
         </div>
       </div>
 

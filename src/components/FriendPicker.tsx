@@ -114,7 +114,7 @@ export function FriendPicker({
                 onClick={() => onAdd(pk)}
                 className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-white/5"
               >
-                <Avatar pubkey={pk} className="size-8 text-xs" badge={false} />
+                <Avatar pubkey={pk} className="size-8 text-xs" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{displayName(profile, nip19.npubEncode(pk))}</span>
                   {typeof profile?.nip05 === 'string' && <span className="block truncate text-xs text-white/40">{profile.nip05}</span>}

@@ -12,6 +12,8 @@ export const MUTE_LIST_KIND = 10000
 export const CURATION_KIND = 30004
 export const FEATURED_D = 'silvamor-sprites'
 export const MODERATION_D = 'silvamor/moderation'
+/** Longest note a report may carry (characters); Silvamor's relay refuses longer ones. */
+export const MAX_REPORT_NOTE = 83
 /** Reports from this many people you follow blur a sprite. */
 export const REPORT_THRESHOLD = 3
 
@@ -32,7 +34,7 @@ export function buildSpriteReport(sprite: Sprite, reason: ReportReason, note: st
   return {
     kind: REPORT_KIND,
     created_at: Math.floor(Date.now() / 1000),
-    content: note.trim(),
+    content: note.trim().slice(0, MAX_REPORT_NOTE),
     tags: [
       ['p', sprite.author!, reason],
       ['a', sprite.id, reason],

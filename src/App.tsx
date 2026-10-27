@@ -1,12 +1,11 @@
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 import { useSession } from './stores/session'
 import { readRelays, useRelays } from './stores/relays'
 import { useProfiles } from './stores/profiles'
-import { useLobby } from './stores/lobby'
-import { useHostAgent } from './hooks/useHostAgent'
-import { useGameWatcher } from './hooks/useGameWatcher'
-import { useBlocks } from './stores/blocks'
+import { mirrorToHome } from './lib/nostr/mirror'
+import { DISCOVERY_RELAYS } from './lib/nostr/pool'
+import { useDailyWatcher } from './hooks/useDailyWatcher'
 import { Background } from './components/Background'
 import { Toaster } from './components/Toaster'
 import { SignerWaiting } from './components/SignerWaiting'
@@ -18,8 +17,7 @@ const page = <K extends string>(load: () => Promise<Record<K, React.ComponentTyp
   lazy(() => load().then((m) => ({ default: m[name] })))
 const LoginPage = page(() => import('./pages/Login'), 'LoginPage')
 const UnlockPage = page(() => import('./pages/Unlock'), 'UnlockPage')
-const LobbyPage = page(() => import('./pages/Lobby'), 'LobbyPage')
-const GamePage = page(() => import('./pages/Game'), 'GamePage')
+const DailyPage = page(() => import('./pages/Daily'), 'DailyPage')
 const GroupsPage = page(() => import('./pages/Groups'), 'GroupsPage')
 const ProfilePage = page(() => import('./pages/Profile'), 'ProfilePage')
 const RelaysPage = page(() => import('./pages/Relays'), 'RelaysPage')
@@ -44,8 +42,8 @@ export default function App() {
     boot()
   }, [boot])
 
-  // Once we know who the user is, pull their relay list and profile.
-  const [relaysReady, setRelaysReady] = useState<string | null>(null)
+  // Once we know who the user is, pull their relay list and profile, and copy their profile,
+  // follow list and relay list to the home relay.
   useEffect(() => {
     if (status !== 'signedIn' || !pubkey) return
     let cancelled = false
@@ -54,28 +52,16 @@ export default function App() {
       .load(pubkey)
       .finally(() => {
         if (cancelled) return
-        useProfiles.getState().fetch(pubkey, readRelays(useRelays.getState().relays), true)
-        setRelaysReady(pubkey)
+        const relays = useRelays.getState().relays
+        useProfiles.getState().fetch(pubkey, readRelays(relays), true)
+        void mirrorToHome(pubkey, [...new Set([...DISCOVERY_RELAYS, ...relays.map((r) => r.url)])]).catch(() => {})
       })
     return () => {
       cancelled = true
     }
   }, [status, pubkey])
 
-  // Follow the lobby on the user's relays, and start over whenever the saved relay list changes.
-  const relayKey = useRelays((s) => s.published.map((r) => `${r.url}:${r.read}`).join(','))
-  useEffect(() => {
-    if (status !== 'signedIn' || !pubkey || relaysReady !== pubkey) return
-    return useLobby.getState().start(pubkey)
-  }, [status, pubkey, relaysReady, relayKey])
-
-  useHostAgent()
-  useGameWatcher()
-
-  // Bitcoin block height is the turn clock; keep it fresh while signed in.
-  useEffect(() => {
-    if (status === 'signedIn') return useBlocks.getState().start()
-  }, [status])
+  useDailyWatcher()
 
   return (
     <BrowserRouter>
@@ -95,13 +81,12 @@ export default function App() {
         {status === 'signedIn' && (
           <Routes>
             <Route element={<Layout />}>
-              <Route index element={<LobbyPage />} />
+              <Route index element={<DailyPage />} />
               <Route path="groups" element={<GroupsPage />} />
               <Route path="sprites" element={<SpriteShopPage />} />
               <Route path="notifications" element={<NotificationsPage />} />
               <Route path="relays" element={<RelaysPage />} />
               <Route path="profile" element={<ProfilePage />} />
-              <Route path="game/:naddr" element={<GamePage />} />
               <Route path="terms" element={<TermsPage />} />
               <Route path="privacy" element={<PrivacyPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />

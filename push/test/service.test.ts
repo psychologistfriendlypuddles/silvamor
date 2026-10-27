@@ -6,8 +6,9 @@ import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } fr
 import { Relay } from 'nostr-tools/relay'
 import { getToken } from 'nostr-tools/nip98'
 import { startDevRelay, type DevRelay } from '../../scripts/dev-relay.mjs'
-import { buildAction, buildListing, coordinateOf, parseListing, type ActionContent } from '../../src/lib/nostr/gameEvents'
-import { buildChatMessage } from '../../src/lib/nostr/chat'
+import { buildRun } from '../../src/lib/nostr/dailyRuns'
+import { dailyDealRules, scorePlay, type DailyDealMove, type DailyDealState } from '../../src/games/dailydeal/rules'
+import { dayOf, dayStart, seedFor } from '../../src/games/dailydeal/daily'
 import { Store } from '../src/store'
 import { createWatchtower, type PushPayload } from '../src/watchtower'
 import { startService } from '../src/server'
@@ -21,6 +22,27 @@ let relay: DevRelay
 let service: { close(): Promise<void> }
 let store: Store
 const sent: { endpoint: string; payload: PushPayload }[] = []
+
+const day = dayOf(new Date())
+const block = { height: 900_000, hash: 'ab'.repeat(32), timestamp: dayStart(day) + 60 }
+
+/** A whole run on today's deal, choosing each hand with `choose`. */
+function runWith(choose: (s: DailyDealState) => number[]) {
+  const rules = dailyDealRules(seedFor(day, block.hash))
+  let state = rules.init()
+  const moves: DailyDealMove[] = []
+  while (!rules.outcome(state)) {
+    const move = { play: choose(state) }
+    state = rules.apply(state, move)
+    moves.push(move)
+  }
+  return { moves, score: state.score }
+}
+const subsets = (cards: number[]): number[][] => cards.flatMap((c, i) => [[c], ...subsets(cards.slice(i + 1)).filter((s) => s.length < 5).map((s) => [c, ...s])])
+const best = (s: DailyDealState) => subsets(s.hand).sort((a, b) => scorePlay(b, s.perks, s.handsLeft === 1).points - scorePlay(a, s.perks, s.handsLeft === 1).points)[0]
+const weak = runWith((s) => [[...s.hand].sort((a, b) => (a % 13) - (b % 13))[0]])
+const strong = runWith(best)
+const runEvent = (run: typeof weak, beaten: string[]) => buildRun({ day, block, moves: run.moves, score: run.score, beaten })
 
 const hostSk = generateSecretKey()
 const guestSk = generateSecretKey()
@@ -53,7 +75,7 @@ beforeAll(async () => {
       sent.push({ endpoint: sub.endpoint, payload })
       return 'ok'
     },
-    getHeight: async () => 800_000,
+    findBlock: async () => block,
     appUrl: 'https://app.example',
   })
   service = await startService(
@@ -101,34 +123,32 @@ describe('push service API', () => {
 })
 
 describe('watchtower', () => {
-  it("pushes your turn and chat, but not old news from before you subscribed", async () => {
-    // A game already in progress: guest to move.
-    const listingEvent = await publish(hostSk, buildListing({ id: 'push1', game: 'tictactoe', status: 'active', access: 'open', blocks: 3, pubkeys: [host, guest] }))
-    const listing = parseListing(listingEvent)!
-    const act = (sk: Uint8Array, content: ActionContent, prev: { id: string } | undefined) =>
-      publish(sk, buildAction(listing, content, { prev: prev?.id, others: [], block: 800_000 }))
-    const start = await act(hostSk, { type: 'start', n: 0, players: [host, guest] }, undefined)
-    const hostMove = await act(hostSk, { type: 'move', n: 1, move: { cell: 4 } }, start)
+  it("pushes a friend's first run that beats yours, once, and nothing else", async () => {
+    const carolSk = generateSecretKey()
+    const strangerSk = generateSecretKey()
+    expect(weak.score).toBeLessThan(strong.score)
+    // The guest follows the host and Carol, and played today, badly.
+    await publish(guestSk, { kind: 3, created_at: Math.floor(Date.now() / 1000), tags: [['p', host], ['p', getPublicKey(carolSk)]], content: '' })
+    await publish(guestSk, runEvent(weak, []))
+    // The host beat them before they subscribed: old news.
+    await publish(hostSk, runEvent(strong, [guest]))
 
     sent.length = 0
     expect((await call('POST', guestSk, { subscription: subscription(10) })).status).toBe(201)
     await new Promise((r) => setTimeout(r, 800))
-    expect(sent).toEqual([]) // "your turn" already pending when they subscribed: not pushed
+    expect(sent).toEqual([])
 
-    const guestMove = await act(guestSk, { type: 'move', n: 2, move: { cell: 0 } }, hostMove)
-    await act(hostSk, { type: 'move', n: 3, move: { cell: 8 } }, guestMove)
-    await vi.waitFor(() => expect(sent.map((s) => s.payload.body)).toContain('🎯 Your turn in Tic-Tac-Toe'), { timeout: 5000 })
-    const turn = sent.find((s) => s.payload.body.includes('Your turn'))!
-    expect(turn.endpoint).toBe(subscription(10).endpoint)
-    expect(turn.payload.url).toMatch(/^https:\/\/app\.example\/game\/naddr1/)
-    expect(turn.payload.tag).toBe(coordinateOf(host, 'push1'))
-
-    await publish(hostSk, buildChatMessage(listing, 'gl hf', [host, guest], host))
-    await vi.waitFor(() => expect(sent.some((s) => /💬 .*: gl hf/.test(s.payload.body))).toBe(true), { timeout: 5000 })
+    // A stranger, and the host's second run, don't count; Carol's first run does.
+    await publish(strangerSk, runEvent(strong, [guest]))
+    await publish(hostSk, { ...runEvent(strong, [guest]), created_at: Math.floor(Date.now() / 1000) + 1 })
+    await publish(carolSk, runEvent(strong, [guest]))
+    await vi.waitFor(() => expect(sent).toHaveLength(1), { timeout: 5000 })
+    expect(sent[0].endpoint).toBe(subscription(10).endpoint)
+    expect(sent[0].payload).toMatchObject({ url: 'https://app.example/', tag: `dailydeal:${day}` })
+    expect(sent[0].payload.body).toMatch(new RegExp(`^🃏 .+ beat your Daily Deal score with ${strong.score.toLocaleString('en-US')}$`))
 
     // Each notice goes out once.
-    const count = sent.length
     await new Promise((r) => setTimeout(r, 800))
-    expect(sent.length).toBe(count)
+    expect(sent).toHaveLength(1)
   })
 })

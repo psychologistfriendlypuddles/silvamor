@@ -6,13 +6,21 @@ export const pool = new SimplePool({ enablePing: true, enableReconnect: true })
 // VITE_RELAYS (comma-separated) replaces every default, e.g. to use the local dev relay.
 const OVERRIDE = import.meta.env.VITE_RELAYS?.split(',').map((r: string) => r.trim()).filter(Boolean) as string[] | undefined
 
+/**
+ * Silvamor's own relay. Every Silvamor event (runs, profiles, follow lists, groups, sprites…) is
+ * published here whatever relays a player picks, so it holds everything leaderboards and
+ * notifications need (docs/DEPLOY.md, "Relays"). VITE_HOME_RELAY changes it; with VITE_RELAYS
+ * (local testing) it defaults to the first of those.
+ */
+export const HOME_RELAY: string = import.meta.env.VITE_HOME_RELAY ?? OVERRIDE?.[0] ?? 'wss://relay.silvamor.com'
+
 // Used before we know the user's own relay list (NIP-65), and to discover it.
-export const DEFAULT_RELAYS = OVERRIDE ?? ['wss://relay.silvamor.com', 'wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net']
+export const DEFAULT_RELAYS = [...new Set([HOME_RELAY, ...(OVERRIDE ?? ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net'])])]
 
 // Indexer relays that are good at answering "what is this pubkey's profile / relay list?"
-export const DISCOVERY_RELAYS = OVERRIDE ?? ['wss://purplepag.es', 'wss://user.kindpag.es', ...DEFAULT_RELAYS]
+export const DISCOVERY_RELAYS = OVERRIDE ? DEFAULT_RELAYS : ['wss://purplepag.es', 'wss://user.kindpag.es', ...DEFAULT_RELAYS]
 
-/** Relays we always read game events from, on top of the user's own read relays. */
+/** Relays we always read and write Silvamor's events on, on top of the user's own: the home relay first. */
 export const GAME_RELAYS = DEFAULT_RELAYS
 
 // Relays commonly used by NIP-46 remote signers (Amber, nsec.app, ...). Several, so the

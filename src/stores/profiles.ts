@@ -19,6 +19,9 @@ interface ProfileState {
   save(signer: AppSigner, pubkey: string, edits: ProfileContent, relays: string[]): Promise<string[]>
 }
 
+/** Profile lookups under way, by pubkey. */
+const inflight = new Map<string, Promise<void>>()
+
 export const useProfiles = create<ProfileState>((set, get) => {
   const remember = (event: Event) => {
     const existing = get().profiles[event.pubkey]
@@ -30,16 +33,24 @@ export const useProfiles = create<ProfileState>((set, get) => {
     profiles: {},
     pending: {},
 
-    async fetch(pubkey, relays = [], force = false) {
-      if (get().pending[pubkey] || (!force && get().profiles[pubkey])) return
+    fetch(pubkey, relays = [], force = false) {
+      // A lookup already under way is shared, so every caller waits until the profile is in.
+      const running = inflight.get(pubkey)
+      if (running) return running
+      if (!force && get().profiles[pubkey]) return Promise.resolve()
       set({ pending: { ...get().pending, [pubkey]: true } })
-      try {
-        const targets = [...new Set([...DISCOVERY_RELAYS, ...relays])]
-        const events = await pool.querySync(targets, { kinds: [0], authors: [pubkey] }, { maxWait: 4000 })
-        events.forEach(remember)
-      } finally {
-        set({ pending: { ...get().pending, [pubkey]: false } })
-      }
+      const lookup = (async () => {
+        try {
+          const targets = [...new Set([...DISCOVERY_RELAYS, ...relays])]
+          const events = await pool.querySync(targets, { kinds: [0], authors: [pubkey] }, { maxWait: 4000 })
+          events.forEach(remember)
+        } finally {
+          inflight.delete(pubkey)
+          set({ pending: { ...get().pending, [pubkey]: false } })
+        }
+      })()
+      inflight.set(pubkey, lookup)
+      return lookup
     },
 
     async fetchMany(pubkeys) {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { zappable } from '../lib/wager'
+import { zappable } from '../lib/zaps'
 import { useProfile, useProfiles } from '../stores/profiles'
 
 /** Whether this player's Lightning address can receive zaps; undefined while checking. */

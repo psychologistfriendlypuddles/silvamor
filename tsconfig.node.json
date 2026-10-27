@@ -13,5 +13,5 @@
     "skipLibCheck": true,
     "strict": true
   },
-  "include": ["vite.config.ts", "deploy", "playwright.config.ts", "tests", "push", "scripts/*.d.mts"]
+  "include": ["vite.config.ts", "deploy", "playwright.config.ts", "tests", "push", "guard", "scripts/*.d.mts"]
 }

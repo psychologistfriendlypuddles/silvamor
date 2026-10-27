@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { fetchRelayInformation, type RelayInformation } from 'nostr-tools/nip11'
 import { Plus, RotateCcw, Save, Trash2 } from 'lucide-react'
-import { normalizeRelayUrl, pool } from '../lib/nostr/pool'
+import { HOME_RELAY, normalizeRelayUrl, pool } from '../lib/nostr/pool'
 import type { RelayEntry } from '../lib/nostr/relayList'
 import { useSigner } from '../stores/session'
 import { useRelays } from '../stores/relays'
@@ -42,7 +42,15 @@ export function RelaysPage() {
 
   return (
     <div>
-      <PageTitle emoji="📡" title="Relays" subtitle="Relays carry your games and moves. Use a few you trust, including your own." />
+      <PageTitle emoji="📡" title="Relays" subtitle="Relays carry your runs, profile and friends. Use a few you trust, including your own." />
+
+      <Card className="mb-4 flex items-start gap-3 text-sm">
+        <span className="mt-0.5 shrink-0 rounded-full bg-mint/15 px-2 py-0.5 text-xs font-semibold text-mint">Always on</span>
+        <p className="text-white/70">
+          <b className="break-all text-white">{HOME_RELAY.replace(/^wss?:\/\//, '')}</b> is Silvamor's relay. Your runs, profile and follow list
+          always go there too, so leaderboards and notifications work for everyone. The relays below are yours to choose.
+        </p>
+      </Card>
 
       {usingDefaults && (
         <Card className="mb-4 border-lemon/30 bg-lemon/5 text-sm text-lemon">

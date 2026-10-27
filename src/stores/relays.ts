@@ -97,7 +97,7 @@ export const useRelays = create<RelayState>((set, get) => ({
 export const readRelays = (relays: RelayEntry[]) => relays.filter((r) => r.read).map((r) => r.url)
 export const writeRelays = (relays: RelayEntry[]) => relays.filter((r) => r.write).map((r) => r.url)
 
-/** Where to look for game events: the user's read relays plus the shared game relays. */
+/** Where to look for Silvamor events: the user's read relays plus the shared relays. */
 export const gameReadRelays = (extra: string[] = []) => [...new Set([...readRelays(useRelays.getState().relays), ...GAME_RELAYS, ...extra])]
-/** Where to publish game events, so opponents and spectators on the shared relays see them. */
+/** Where to publish Silvamor events, so friends on the shared relays see them. */
 export const gameWriteRelays = (extra: string[] = []) => [...new Set([...writeRelays(useRelays.getState().relays), ...GAME_RELAYS, ...extra])]

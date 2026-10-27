@@ -334,7 +334,7 @@ function CreateAccount() {
       </p>
       <div className="rounded-2xl border-2 border-dashed border-lemon/50 bg-night-950/60 p-4 font-mono text-sm break-all text-lemon">{nsec}</div>
       <CopyButton text={nsec} label="Copy private key" />
-      <Warning>Save it in a password manager now. Never share your nsec with anyone, including game opponents.</Warning>
+      <Warning>Save it in a password manager now. Never share your nsec with anyone, including friends.</Warning>
       <Toggle checked={saved} onChange={setSaved} label="I saved my private key somewhere safe" />
       <Field
         label="Device password"

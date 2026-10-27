@@ -9,9 +9,6 @@ const testEnv = {
   VITE_BLOSSOM_SERVER: 'http://localhost:7777',
 }
 
-/** The same build with wagers switched on (FEATURES.wagers), for the wager tests. */
-export const WAGERS_URL = 'http://localhost:4175'
-
 export default defineConfig({
   testDir: 'tests/e2e',
   testMatch: '*.e2e.ts',
@@ -32,13 +29,6 @@ export default defineConfig({
       command: 'vite build --outDir dist-e2e --emptyOutDir && vite preview --outDir dist-e2e --port 4174 --strictPort',
       port: 4174,
       env: testEnv,
-      timeout: 120_000,
-      reuseExistingServer: false,
-    },
-    {
-      command: 'vite build --outDir dist-e2e-wagers --emptyOutDir && vite preview --outDir dist-e2e-wagers --port 4175 --strictPort',
-      port: 4175,
-      env: { ...testEnv, VITE_ENABLE_WAGERS: 'true' },
       timeout: 120_000,
       reuseExistingServer: false,
     },

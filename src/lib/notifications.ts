@@ -1,76 +1,44 @@
-import type { GameListing } from './nostr/gameEvents'
-import type { ChatMessage } from './nostr/chat'
-import type { ReplayResult } from './replay'
+import type { Event } from 'nostr-tools/pure'
+import type { Block } from './bitcoin'
+import { countedRuns, parseRun, type DailyRun } from './nostr/dailyRuns'
 
-export type NoticeKind = 'invited' | 'joined' | 'turn' | 'strikeSoon' | 'strike' | 'ended' | 'chat'
+// What's worth telling a player about. The app and the push service (push/) both decide
+// with `beatenNotice`, so they can't disagree.
 
 export interface Notice {
-  /** Stable, so the same event never notifies twice (even after a reload). */
+  /** Stable, so the same run never notifies twice (even after a reload). */
   id: string
-  kind: NoticeKind
-  coordinate: string
+  kind: 'beaten'
+  day: string
   /** When it happened (unix seconds). */
   at: number
-  /** Someone else involved: who invited, joined, struck out, or wrote. */
-  actor?: string
-  /** Kind-specific detail: strike count, chat text, how the game ended. */
-  detail?: string
-  /** Strikes: whether they landed on me. Ended: 'won' | 'lost' | 'draw'. */
-  mine?: boolean
+  /** The friend whose run beat yours. */
+  actor: string
+  score: number
 }
 
-/** Kinds that stop mattering once the moment passes (it's no longer your turn). */
-export const TRANSIENT: NoticeKind[] = ['turn', 'strikeSoon']
-
-export interface GameView {
-  listing: GameListing
-  result: ReplayResult | null
-  me: string
-  /** Current Bitcoin block height, for "1 block left" warnings. */
-  height: number | null
-  chat: ChatMessage[]
+/** What `beatenNotice` needs to look up, from relays (and a Bitcoin block source). */
+export interface RunLookup {
+  follows(me: string, author: string): Promise<boolean>
+  dayBlock(day: string): Promise<Block | null>
+  /** The day's runs (kind 1952) by these authors. */
+  runs(authors: string[], day: string): Promise<Event[]>
 }
 
-/** Everything a game currently warrants telling `me` about. */
-export function noticesFor({ listing, result, me, height, chat }: GameView): Notice[] {
-  const c = listing.coordinate
-  const notices: Notice[] = []
-
-  if (listing.status === 'open' && listing.access === 'invite' && listing.host !== me && listing.pubkeys.includes(me) && !result?.started) {
-    notices.push({ id: `${c}:invited`, kind: 'invited', coordinate: c, at: listing.createdAt, actor: listing.host })
-  }
-  if (!result?.started) return notices
-
-  const myIndex = result.players.indexOf(me)
-  if (myIndex < 0) return notices
-  const opponent = result.players.find((p) => p !== me)
-  const start = result.steps[0].action.event
-
-  if (listing.host === me) notices.push({ id: `${c}:joined`, kind: 'joined', coordinate: c, at: start.created_at, actor: opponent })
-
-  // Strikes, mine and my opponent's (filed or still pending).
-  result.players.forEach((p, i) => {
-    const total = result.totalStrikes[i]
-    for (let n = 1; n <= total; n++) {
-      notices.push({ id: `${c}:strike:${p}:${n}`, kind: 'strike', coordinate: c, at: result.tip!.createdAt, actor: p, detail: String(n), mine: p === me })
-    }
-  })
-
-  if (result.outcome) {
-    const o = result.outcome
-    const how = 'draw' in o ? 'draw' : o.winner === myIndex ? 'won' : 'lost'
-    notices.push({ id: `${c}:ended`, kind: 'ended', coordinate: c, at: result.tip!.createdAt, actor: opponent, detail: how })
-  } else if (result.turn === myIndex && result.tip) {
-    const tip = result.tip
-    notices.push({ id: `${c}:turn:${tip.id}`, kind: 'turn', coordinate: c, at: tip.createdAt, actor: opponent })
-    // One block from a strike: the last chance to move in time.
-    if (result.nextStrikeAt !== null && height !== null && result.nextStrikeAt - height === 1) {
-      notices.push({ id: `${c}:soon:${result.nextStrikeAt}`, kind: 'strikeSoon', coordinate: c, at: tip.createdAt })
-    }
-  }
-
-  for (const m of chat) {
-    if (m.author !== me) notices.push({ id: `chat:${m.id}`, kind: 'chat', coordinate: c, at: m.createdAt, actor: m.author, detail: m.text })
-  }
-  return notices
+/**
+ * A run tagging `me` as beaten is news when: its author is someone `me` follows, it's the
+ * author's first run of the day (the one that counts), and it beats `me`'s own counted run.
+ */
+export async function beatenNotice(event: Event, me: string, lookup: RunLookup): Promise<Notice | null> {
+  const run = parseRun(event)
+  if (!run || run.author === me || !event.tags.some((t) => t[0] === 'p' && t[1] === me)) return null
+  if (!(await lookup.follows(me, run.author))) return null
+  const block = await lookup.dayBlock(run.day)
+  if (!block) return null
+  const runs = (await lookup.runs([run.author, me], run.day)).map(parseRun).filter((r): r is DailyRun => r !== null)
+  const counted = countedRuns([...runs, run], block, null)
+  if (counted.get(run.author)?.event.id !== event.id) return null
+  const mine = counted.get(me)
+  if (!mine || mine.score >= run.score) return null
+  return { id: `beaten:${event.id}`, kind: 'beaten', day: run.day, at: run.createdAt, actor: run.author, score: run.score }
 }

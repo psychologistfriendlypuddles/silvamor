@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { Zap } from 'lucide-react'
-import { formatSats } from '../lib/wager'
+import { formatSats } from '../lib/zaps'
 import { useZapPay } from '../hooks/useZapPay'
 import { useZappable } from '../hooks/useZappable'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { PayButtons } from './ZapPay'
 import { Button } from './ui'
 
-/** Thank-you tips are small: the post-game prompt always offers this flat amount. */
+/** Tips start at this amount; the player can change it. */
 export const THANKS_TIP = 21
 export const MAX_TIP = 1_000_000
 

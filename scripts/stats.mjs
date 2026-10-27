@@ -1,80 +1,40 @@
-// Silvamor game stats from the public relays: games started per day, and the most popular games.
+// Silvamor stats from the public relays: Daily Deal players per day, and each day's top score.
 // Usage: npm run stats                      (last 30 days)
 //        npm run stats -- --days 7
 //        npm run stats -- --json            (machine-readable)
 //        npm run stats -- --relays wss://relay.damus.io,wss://nos.lol
 //
-// Only games that really started count: the listing (kind 30950) must point at a `start`
-// action (kind 1951) signed by its host. Open, cancelled and made-up listings don't.
+// A player counts once a day: whoever published a run (kind 1952) labelled with that day.
+// Scores are as claimed, not replayed (the app checks them; this is only a head count).
 // Relays may drop old events, so this is reliable for recent weeks rather than all time.
 import { fileURLToPath } from 'node:url'
 import { SimplePool } from 'nostr-tools/pool'
 
-export const DEFAULT_RELAYS = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://relay.silvamor.com']
+export const DEFAULT_RELAYS = ['wss://relay.silvamor.com', 'wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net']
 
-const GAME_NAMES = {
-  tictactoe: 'Tic-Tac-Toe',
-  fourinarow: 'Four-in-a-Row',
-  dotsandboxes: 'Dots and Boxes',
-  chess: 'Chess',
-  reversi: 'Reversi',
-  checkers: 'Checkers',
-  go: 'Go',
-  gomoku: 'Gomoku',
-  morris: "Nine Men's Morris",
-}
-
-const tag = (e, name) => e.tags.find((t) => t[0] === name)?.[1]
+const LABEL = 'silvamor/dailydeal'
 const day = (seconds) => new Date(seconds * 1000).toISOString().slice(0, 10)
 
-/** Counts games started in the last `days` UTC days (today included): per day, and per game type. */
+/** Daily Deal players in the last `days` UTC days (today included), per day. */
 export async function collectStats({ relays = DEFAULT_RELAYS, days = 30, now = Math.floor(Date.now() / 1000), maxWait = 8000 } = {}) {
   // Whole UTC days: from the start of the first day to now.
   const since = Math.floor(now / 86400) * 86400 - (days - 1) * 86400
+  const dayList = []
+  for (let t = since; t <= now; t += 86400) dayList.push(day(t))
   const pool = new SimplePool()
   try {
-    // Newest version of each listing touched in the window (a started game is updated after it starts).
-    const listings = new Map()
-    for (const e of await pool.querySync(relays, { kinds: [30950], '#t': ['silvamor'], since }, { maxWait })) {
-      const key = `${e.pubkey}:${tag(e, 'd')}`
-      if ((listings.get(key)?.created_at ?? 0) < e.created_at) listings.set(key, e)
-    }
-    const started = [...listings.values()].filter((l) => ['active', 'finished'].includes(tag(l, 'status')) && tag(l, 'e'))
-
-    // Their start actions: proof the game began, and when.
-    const ids = started.map((l) => tag(l, 'e'))
-    const starts = new Map()
-    for (let i = 0; i < ids.length; i += 200) {
-      for (const e of await pool.querySync(relays, { kinds: [1951], ids: ids.slice(i, i + 200) }, { maxWait })) starts.set(e.id, e)
-    }
-
-    const games = []
-    for (const l of started) {
-      const start = starts.get(tag(l, 'e'))
-      if (!start || start.pubkey !== l.pubkey || tag(start, 'a') !== `30950:${l.pubkey}:${tag(l, 'd')}`) continue
-      let content
-      try {
-        content = JSON.parse(start.content)
-      } catch {
-        continue
+    const runs = await pool.querySync(relays, { kinds: [1952], '#l': dayList }, { maxWait })
+    const perDay = dayList.map((d) => {
+      const players = new Map() // pubkey -> their first run's score
+      for (const e of runs.sort((a, b) => a.created_at - b.created_at)) {
+        const label = e.tags.find((t) => t[0] === 'l' && t[2] === LABEL)?.[1]
+        const score = Number(e.tags.find((t) => t[0] === 'score')?.[1])
+        if (label === d && Number.isSafeInteger(score) && !players.has(e.pubkey)) players.set(e.pubkey, score)
       }
-      if (content?.type !== 'start' || !Array.isArray(content.players) || content.players.length < 2) continue
-      if (start.created_at < since || start.created_at > now) continue
-      games.push({ game: tag(l, 'game'), day: day(start.created_at), finished: tag(l, 'status') === 'finished' })
-    }
-
-    const perDay = []
-    for (let t = since; t <= now; t += 86400) {
-      const d = day(t)
-      perDay.push({ day: d, games: games.filter((g) => g.day === d).length })
-    }
-    const counts = new Map()
-    for (const g of games) counts.set(g.game, (counts.get(g.game) ?? 0) + 1)
-    const byGame = [...counts]
-      .map(([game, n]) => ({ game, name: GAME_NAMES[game] ?? game, games: n }))
-      .sort((a, b) => b.games - a.games || a.name.localeCompare(b.name))
-
-    return { days, from: day(since), to: day(now), total: games.length, finished: games.filter((g) => g.finished).length, perDay, byGame }
+      return { day: d, players: players.size, topScore: Math.max(0, ...players.values()) }
+    })
+    const everyone = new Set(runs.map((e) => e.pubkey))
+    return { days, from: day(since), to: day(now), players: everyone.size, perDay }
   } finally {
     pool.destroy()
   }
@@ -82,15 +42,11 @@ export async function collectStats({ relays = DEFAULT_RELAYS, days = 30, now = M
 
 function print(stats) {
   const bar = (n, max) => '█'.repeat(max ? Math.round((n / max) * 30) : 0)
-  console.log(`\nSilvamor games started, ${stats.from} to ${stats.to} (UTC)`)
-  console.log(`${stats.total} games (${stats.finished} finished)\n`)
-  console.log('Most popular games')
-  const maxGame = Math.max(0, ...stats.byGame.map((g) => g.games))
-  for (const g of stats.byGame) console.log(`  ${g.name.padEnd(18)} ${String(g.games).padStart(5)}  ${bar(g.games, maxGame)}`)
-  if (!stats.byGame.length) console.log('  (none yet)')
-  console.log('\nGames per day')
-  const maxDay = Math.max(0, ...stats.perDay.map((d) => d.games))
-  for (const d of stats.perDay) console.log(`  ${d.day}  ${String(d.games).padStart(5)}  ${bar(d.games, maxDay)}`)
+  console.log(`\nSilvamor Daily Deal, ${stats.from} to ${stats.to} (UTC)`)
+  console.log(`${stats.players} different players\n`)
+  console.log('Players per day (top score)')
+  const max = Math.max(0, ...stats.perDay.map((d) => d.players))
+  for (const d of stats.perDay) console.log(`  ${d.day}  ${String(d.players).padStart(5)}  ${String(d.topScore).padStart(7)}  ${bar(d.players, max)}`)
   console.log()
 }
 

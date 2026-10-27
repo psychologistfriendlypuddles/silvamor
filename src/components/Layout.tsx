@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import { NavLink, useLocation, useOutlet } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { Bell, Gamepad2, LogOut, Radio, Store, UserRound, UsersRound } from 'lucide-react'
+import { Bell, LogOut, Radio, Spade, Store, UserRound, UsersRound } from 'lucide-react'
 import { useSession } from '../stores/session'
 import { useLoadModeration } from '../stores/moderation'
 import { GitHubLink, LegalLinks } from './LegalLinks'
@@ -12,7 +12,7 @@ import { Spinner } from './ui'
 import { useUnreadCount } from '../stores/notifications'
 
 const NAV = [
-  { to: '/', label: 'Lobby', icon: Gamepad2, color: 'text-lemon' },
+  { to: '/', label: 'Daily Deal', icon: Spade, color: 'text-lemon' },
   { to: '/sprites', label: 'Sprites', icon: Store, color: 'text-grape' },
   { to: '/groups', label: 'Groups', icon: UsersRound, color: 'text-tangerine' },
   { to: '/notifications', label: 'Alerts', icon: Bell, color: 'text-bubblegum' },

@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useProfile } from '../stores/profiles'
-import { HonorBadge } from './HonorBadge'
 
 const gradients = [
   'from-grape to-bubblegum',
@@ -11,11 +10,8 @@ const gradients = [
   'from-mint to-lemon',
 ]
 
-/**
- * Profile picture, or a colorful gradient picked from the pubkey when there is none,
- * with the player's wager honor badge in the corner (`badge={false}` for long lists).
- */
-export function Avatar({ pubkey, src, className = 'size-10', badge = true }: { pubkey: string; src?: string; className?: string; badge?: boolean }) {
+/** Profile picture, or a colorful gradient picked from the pubkey when there is none. */
+export function Avatar({ pubkey, src, className = 'size-10' }: { pubkey: string; src?: string; className?: string }) {
   const profile = useProfile(pubkey)
   const picture = src ?? profile?.picture
   const [failed, setFailed] = useState<string | null>(null)
@@ -33,7 +29,6 @@ export function Avatar({ pubkey, src, className = 'size-10', badge = true }: { p
           {initial}
         </span>
       )}
-      {badge && <HonorBadge pubkey={pubkey} />}
     </span>
   )
 }

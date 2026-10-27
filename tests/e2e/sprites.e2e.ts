@@ -1,35 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { fileURLToPath } from 'node:url'
-import { createGame, expectNoErrors, goTo, joinGame, play, playerOnline, waitForStart } from './helpers'
+import { expectNoErrors, goTo, onPodium, playerOnline, publishRun } from './helpers'
 
 const OSTRICH_SHEET = fileURLToPath(new URL('../../public/sprites/ostrich.png', import.meta.url))
-
-test("the players' sprites react to the game, and the waiting room shows the host's", async ({ browser }) => {
-  const alice = await playerOnline(browser, 'Alice')
-  const bob = await playerOnline(browser, 'Bob')
-  const path = await createGame(alice)
-  await expect(alice.page.getByRole('img', { name: 'Ostrich (idle)' })).toBeVisible()
-
-  await goTo(bob, path)
-  await expect(bob.page.getByRole('img', { name: 'Ostrich (happy)' })).toBeVisible()
-  await joinGame(bob)
-  const aliceFirst = await waitForStart(alice)
-  await waitForStart(bob)
-  const [first, second] = aliceFirst ? [alice, bob] : [bob, alice]
-
-  // Whoever's turn it is thinks; a chat message makes the sender's sprite talk.
-  const cards = first.page.locator('main')
-  await expect(cards.getByRole('img', { name: 'Ostrich (thinking)' })).toHaveCount(1)
-  await first.page.waitForTimeout(3500) // past the moment of loading history
-  await second.page.getByLabel('Chat message', { exact: true }).fill('hmm')
-  await second.page.getByLabel('Chat message', { exact: true }).press('Enter')
-  await expect(cards.getByRole('img', { name: 'Ostrich (chat)' })).toBeVisible()
-
-  for (const [p, cell] of [[first, 0], [second, 3], [first, 1], [second, 4], [first, 2]] as const) await play(p, cell)
-  await expect(first.page.getByRole('img', { name: 'Ostrich (win)' })).toBeVisible()
-  await expect(first.page.getByRole('img', { name: 'Ostrich (lose)' })).toBeVisible()
-  expectNoErrors(alice, bob)
-})
 
 test('uploading your own sprite: checked against the standard, then everyone sees it', async ({ browser }) => {
   const alice = await playerOnline(browser, 'Alice')
@@ -49,10 +22,9 @@ test('uploading your own sprite: checked against the standard, then everyone see
   await card.getByRole('button', { name: 'Publish and use it' }).click()
   await expect(alice.page.getByText('Test bird is now your sprite ✨')).toBeVisible()
 
-  // Another player sees Alice's new sprite in her game.
-  const path = await createGame(alice)
-  const bob = await playerOnline(browser, 'Bob')
-  await goTo(bob, path)
-  await expect(bob.page.getByRole('img', { name: 'Test bird (happy)' })).toBeVisible()
+  // A friend sees Alice's new sprite on the podium once they've both played.
+  await publishRun(alice.sk)
+  const bob = await onPodium(browser, 'Bob', [alice.pubkey])
+  await expect(bob.page.getByRole('img', { name: /^Test bird \((win|happy)\)$/ })).toBeVisible()
   expectNoErrors(alice, bob)
 })

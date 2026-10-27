@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { DISCOVERY_RELAYS, pool, publishTo } from '../lib/nostr/pool'
 import { FOLLOW_SET_KIND, buildGroup, buildGroupDeletion, parseGroup, type Group } from '../lib/nostr/groups'
-import { newGameId } from '../lib/nostr/gameEvents'
+import { bytesToHex } from 'nostr-tools/utils'
 import type { AppSigner } from '../lib/nostr/signers'
 import { gameReadRelays, gameWriteRelays } from './relays'
 
@@ -51,7 +51,7 @@ export const useGroups = create<GroupsState>((set, get) => ({
   },
 
   async save(signer, input) {
-    const group = { ...input, id: input.id ?? newGameId() }
+    const group = { ...input, id: input.id ?? bytesToHex(crypto.getRandomValues(new Uint8Array(8))) }
     const event = await signer.signEvent(buildGroup(group))
     await publishTo([...new Set([...gameWriteRelays(), ...DISCOVERY_RELAYS])], event)
     const saved = { ...group, createdAt: event.created_at }

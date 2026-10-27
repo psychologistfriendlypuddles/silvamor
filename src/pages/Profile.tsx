@@ -11,9 +11,7 @@ import { toast } from '../stores/toast'
 import { Avatar } from '../components/Avatar'
 import { Button, Card, Field, PageTitle, Spinner } from '../components/ui'
 import { CopyButton } from './Login'
-import { RecordCard } from '../components/Record'
-import { FEATURES } from '../features'
-import { HonorCard, WalletCard } from '../components/WalletCard'
+import { WalletCard } from '../components/WalletCard'
 import { SpriteCard } from '../components/SpriteCard'
 import { LegalLinks } from '../components/LegalLinks'
 
@@ -31,11 +29,6 @@ export function ProfilePage() {
   return (
     <div>
       <PageTitle emoji="🎨" title="Your Profile" subtitle="This is your Nostr profile. It shows up in every Nostr app." />
-      {FEATURES.ratings && (
-        <div className="mb-5">
-          <RecordCard pubkey={pubkey} />
-        </div>
-      )}
       {loading && !cached ? (
         <div className="flex justify-center py-20">
           <Spinner />
@@ -47,8 +40,7 @@ export function ProfilePage() {
       <div className="mt-5">
         <SpriteCard />
       </div>
-      <div className="mt-5 grid gap-5 md:grid-cols-2">
-        {FEATURES.wagers && <HonorCard pubkey={pubkey} />}
+      <div className="mt-5">
         <WalletCard pubkey={pubkey} />
       </div>
       <LogOutCard />
@@ -162,7 +154,7 @@ function ProfileForm({ initial }: { initial: ProfileContent | undefined }) {
             rows={3}
             value={form.about}
             onChange={set('about')}
-            placeholder="Undefeated at tic-tac-toe since 2009."
+            placeholder="Chasing a straight flush since 2009."
             className="w-full resize-none rounded-2xl border-2 border-white/10 bg-night-950/60 px-4 py-3 text-white placeholder-white/30 outline-none focus:border-grape"
           />
         </label>
@@ -189,7 +181,7 @@ function ProfileForm({ initial }: { initial: ProfileContent | undefined }) {
           onChange={set('lud16')}
           error={lud16Error}
           trailing={<Zap className="size-5 text-lemon" />}
-          hint="Where zaps (and, later, friendly wagers) get paid."
+          hint="Where zaps and tips get paid."
         />
         <Field
           label="Website"

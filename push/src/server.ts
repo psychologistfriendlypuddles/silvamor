@@ -3,13 +3,13 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import webpush from 'web-push'
 import { unpackEventFromToken, validateEvent } from 'nostr-tools/nip98'
-import { fetchTipHeight } from '../../src/lib/bitcoin'
+import { findFirstBlockAfter } from '../../src/lib/bitcoin'
 import { Store, type PushSubscriptionData } from './store'
 import { createWatchtower, type PushPayload, type SendResult, type Watchtower } from './watchtower'
 
-// Silvamor push service: a small, self-hostable "game watchtower". Players register a
-// Web Push subscription by signing the request with their Nostr key (NIP-98); the
-// service follows their games on the relays and pushes what the app would show.
+// Silvamor push service: a small, self-hostable watchtower. Players register a Web Push
+// subscription by signing the request with their Nostr key (NIP-98); the service watches
+// the relays for friends' Daily Deal runs that beat them and pushes what the app would show.
 
 export interface ServiceConfig {
   port: number
@@ -94,7 +94,7 @@ export function startService(config: ServiceConfig, deps: { store?: Store; watch
       relays: config.relays,
       store,
       send: webPushSender(vapid!, config.vapidSubject),
-      getHeight: () => fetchTipHeight(config.blockSources),
+      findBlock: (time) => findFirstBlockAfter(time, config.blockSources),
       appUrl: config.appUrl,
       log: (m) => console.log(m),
     })

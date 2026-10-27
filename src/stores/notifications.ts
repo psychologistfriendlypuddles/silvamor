@@ -1,24 +1,22 @@
 import { create } from 'zustand'
-import { TRANSIENT, type Notice } from '../lib/notifications'
+import type { Notice } from '../lib/notifications'
 
 export interface StoredNotice extends Notice {
-  /** Game title when the notice was made, for display. */
-  title: string
   read: boolean
 }
 
 const MAX_KEPT = 150
-const storageKey = (pubkey: string) => `silvamor:notices:${pubkey}`
+// v2: notices from the retired two-player games are left behind.
+const storageKey = (pubkey: string) => `silvamor:notices:v2:${pubkey}`
 
 interface NotificationsState {
   pubkey: string | null
   /** Newest first. */
   items: StoredNotice[]
   load(pubkey: string): void
-  /** Takes a game's current notices; returns the ones not seen before. */
-  merge(coordinate: string, current: Notice[], title: string): StoredNotice[]
+  /** Adds a notice; false if it was already there. */
+  add(notice: Notice): boolean
   markRead(id: string): void
-  markGameRead(coordinate: string): void
   markAllRead(): void
 }
 
@@ -49,27 +47,14 @@ export const useNotifications = create<NotificationsState>((set, get) => {
       set({ pubkey, items })
     },
 
-    merge(coordinate, current, title) {
-      const { items } = get()
-      const known = new Set(items.map((n) => n.id))
-      const currentIds = new Set(current.map((n) => n.id))
-      const fresh = current.filter((n) => !known.has(n.id)).map((n) => ({ ...n, title, read: false }))
-      // "Your turn" and "1 block left" are done once the moment has passed.
-      const updated = items.map((n) =>
-        n.coordinate === coordinate && !n.read && TRANSIENT.includes(n.kind) && !currentIds.has(n.id) ? { ...n, read: true } : n,
-      )
-      if (fresh.length === 0 && updated.every((n, i) => n === items[i])) return []
-      save([...fresh.sort((a, b) => b.at - a.at), ...updated].sort((a, b) => b.at - a.at))
-      return fresh
+    add(notice) {
+      if (get().items.some((n) => n.id === notice.id)) return false
+      save([{ ...notice, read: false }, ...get().items].sort((a, b) => b.at - a.at))
+      return true
     },
 
     markRead(id) {
       save(get().items.map((n) => (n.id === id ? { ...n, read: true } : n)))
-    },
-
-    markGameRead(coordinate) {
-      if (!get().items.some((n) => n.coordinate === coordinate && !n.read)) return
-      save(get().items.map((n) => (n.coordinate === coordinate ? { ...n, read: true } : n)))
     },
 
     markAllRead() {

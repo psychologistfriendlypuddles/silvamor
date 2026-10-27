@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { motion } from 'motion/react'
 import { Check, EyeOff, Flag, Heart, ImageUp, ShieldCheck, Star, X } from 'lucide-react'
 import { BUILTIN_SPRITES, type Sprite } from '../lib/sprites'
-import { formatSats } from '../lib/wager'
+import { formatSats } from '../lib/zaps'
 import { useSigner } from '../stores/session'
 import { usePlayerSprite, useSprites } from '../stores/sprites'
 import { useModeration, useSpriteBlock } from '../stores/moderation'
-import { REPORT_REASONS, REPORT_THRESHOLD, type ModerationSettings, type ReportReason } from '../lib/moderation'
+import { MAX_REPORT_NOTE, REPORT_REASONS, REPORT_THRESHOLD, type ModerationSettings, type ReportReason } from '../lib/moderation'
 import { toast } from '../stores/toast'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { useZappable } from '../hooks/useZappable'
@@ -410,6 +410,7 @@ function ReportForm({ sprite, onDone }: { sprite: Sprite; onDone(): void }) {
         placeholder="Anything else? (optional)"
         value={note}
         onChange={(e) => setNote(e.target.value)}
+        maxLength={MAX_REPORT_NOTE}
         rows={2}
         className="rounded-xl border-2 border-white/10 bg-night-900 p-2 outline-none focus:border-grape"
       />
@@ -482,7 +483,7 @@ function HiddenArtist({ pubkey, disabled, onUnhide }: { pubkey: string; disabled
   const name = useDisplayName(pubkey)
   return (
     <div className="flex items-center gap-3 rounded-2xl bg-white/5 p-2">
-      <Avatar pubkey={pubkey} className="size-8 text-xs" badge={false} />
+      <Avatar pubkey={pubkey} className="size-8 text-xs" />
       <span className="min-w-0 flex-1 truncate">{name}</span>
       <Button variant="ghost" disabled={disabled} onClick={onUnhide}>
         Unhide

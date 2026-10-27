@@ -35,7 +35,6 @@ export function parseNwc(value: string): NwcConnection {
 }
 
 const nwcKey = (pubkey: string) => `silvamor:nwc:${pubkey}`
-const autoPayKey = (pubkey: string) => `silvamor:autopay:${pubkey}`
 
 /**
  * The connection string can spend from the wallet within whatever budget the user gave it,
@@ -55,18 +54,8 @@ export function saveNwc(pubkey: string, connection: string | null) {
     localStorage.setItem(nwcKey(pubkey), connection.trim())
   } else {
     localStorage.removeItem(nwcKey(pubkey))
-    localStorage.removeItem(autoPayKey(pubkey))
   }
 }
-
-export const autoPayOn = (pubkey: string) => {
-  try {
-    return localStorage.getItem(autoPayKey(pubkey)) === 'yes' && !!savedNwc(pubkey)
-  } catch {
-    return false
-  }
-}
-export const setAutoPay = (pubkey: string, on: boolean) => (on ? localStorage.setItem(autoPayKey(pubkey), 'yes') : localStorage.removeItem(autoPayKey(pubkey)))
 
 export function isNwcConnection(value: string): boolean {
   try {

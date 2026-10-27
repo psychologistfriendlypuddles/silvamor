@@ -9,14 +9,12 @@ import { copyText } from '../lib/clipboard'
 import { Avatar } from './Avatar'
 import { Modal } from './Modal'
 import { SpriteView } from './Sprite'
-import { VerifiedBadge } from './Record'
+import { VerifiedBadge } from './VerifiedBadge'
 import { TipButton } from './Tip'
-import { useLobby } from '../stores/lobby'
 
 /**
  * A player's profile in a sheet: picture, name, about, sprite, and a tip button (any amount,
- * starting at 21 sats). Tips never come before or during a game: there's no tip button while
- * you and they are both in a game that's still going (or when `tipping={false}`).
+ * starting at 21 sats) unless `tipping={false}`.
  */
 export function PlayerSheet({ pubkey, tipping = true, onClose }: { pubkey: string | null; tipping?: boolean; onClose(): void }) {
   return <Modal open={!!pubkey} onClose={onClose}>{pubkey && <PlayerProfile pubkey={pubkey} tipping={tipping} onClose={onClose} />}</Modal>
@@ -29,9 +27,6 @@ function PlayerProfile({ pubkey, tipping, onClose }: { pubkey: string; tipping: 
   const sprite = usePlayerSprite(pubkey)
   const npub = nip19.npubEncode(pubkey)
   const [copied, setCopied] = useState(false)
-  const playingTogether = useLobby((s) =>
-    Object.values(s.listings).some((l) => (l.status === 'open' || l.status === 'active') && [l.host, ...l.pubkeys].includes(me) && [l.host, ...l.pubkeys].includes(pubkey)),
-  )
   useEffect(() => {
     void useProfiles.getState().fetch(pubkey)
   }, [pubkey])
@@ -70,15 +65,12 @@ function PlayerProfile({ pubkey, tipping, onClose }: { pubkey: string; tipping: 
         </p>
       </div>
 
-      {pubkey !== me &&
-        (tipping && !playingTogether ? (
-          <div className="flex flex-col gap-2">
-            <p className="text-sm text-white/55">Send {name} a tip, just because. It goes straight to their wallet.</p>
-            <TipButton pubkey={pubkey} label={`Tip ${name}`} />
-          </div>
-        ) : (
-          <p className="text-sm text-white/45">Tips open once your game together is over.</p>
-        ))}
+      {pubkey !== me && tipping && (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-white/55">Send {name} a tip, just because. It goes straight to their wallet.</p>
+          <TipButton pubkey={pubkey} label={`Tip ${name}`} />
+        </div>
+      )}
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { createGame, expectNoErrors, goTo, playerOnline, publishSprite } from './helpers'
+import { expectNoErrors, goTo, onPodium, playerOnline, publishRun, publishSprite } from './helpers'
 
 test('an artist shares a sprite; another player uses it for free and tips the artist', async ({ browser }) => {
   const name = `Disco duck ${Date.now() % 100000}`
@@ -21,10 +21,9 @@ test('an artist shares a sprite; another player uses it for free and tips the ar
   await bob.page.getByRole('button', { name: 'Tip with browser wallet' }).click()
   await expect(bob.page.getByText('Tipped Alice 210 sats ⚡ Thank you!')).toBeVisible()
 
-  // Others see the sprite on Bob.
-  const path = await createGame(bob)
-  const carol = await playerOnline(browser, 'Carol')
-  await goTo(carol, path)
-  await expect(carol.page.getByRole('img', { name: `${name} (happy)` })).toBeVisible()
+  // Friends see the sprite on Bob's podium spot.
+  await publishRun(bob.sk)
+  const carol = await onPodium(browser, 'Carol', [bob.pubkey])
+  await expect(carol.page.getByRole('img', { name: new RegExp(`^${name} \\((win|happy)\\)$`) })).toBeVisible()
   expectNoErrors(alice, bob, carol)
 })

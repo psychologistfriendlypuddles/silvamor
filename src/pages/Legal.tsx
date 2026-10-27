@@ -2,7 +2,6 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { ArrowLeft } from 'lucide-react'
 import nostrLogo from '../assets/nostr-logo.png'
-import { FEATURES } from '../features'
 
 /** Where questions about the terms and privacy go: Silvamor's Nostr account. */
 const CONTACT_NPUB = 'npub1un3zlt56grf2wuytv4gjfzheghytsjy50s92m6pygt67gsjnsspse8r6um'
@@ -16,7 +15,7 @@ function NostrContact({ children = 'message us on Nostr' }: { children?: ReactNo
     </a>
   )
 }
-const EFFECTIVE = 'October 26, 2026'
+const EFFECTIVE = 'October 27, 2026'
 const SITE = 'www.silvamor.com'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -81,9 +80,10 @@ export function TermsPage({ standalone }: { standalone?: boolean }) {
 
       <Section title="1. What Silvamor is (and isn’t)">
         <p>
-          Silvamor is software for playing games over Nostr, an open, public network of independent relays. It shows game listings, moves and other
-          events that people sign with their own keys and publish to relays. We don’t run a game server, we don’t hold accounts, and we don’t control
-          the relays, other Nostr apps, or what people publish.
+          Silvamor is software for playing games over Nostr, an open, public network of independent relays. It shows Daily Deal runs, leaderboards and other
+          events that people sign with their own keys and publish to relays. We don’t run a game server and we don’t hold accounts. We run one relay,
+          relay.silvamor.com, which stores Silvamor’s events so leaderboards work, and we decide what it accepts and how long it keeps it (see the
+          privacy policy). We don’t control other relays, other Nostr apps, or what people publish.
         </p>
         <ul className={ul}>
           <li>
@@ -91,12 +91,12 @@ export function TermsPage({ standalone }: { standalone?: boolean }) {
             with it. Keep it safe.
           </li>
           <li>
-            <b>Events are public and permanent.</b> Games, moves, chat, profiles, sprites, reports and payment receipts are published to public relays
+            <b>Events are public and permanent.</b> Daily Deal runs, profiles, sprites, reports and payment receipts are published to public relays
             and can be copied by anyone. Deleting from Silvamor or asking relays to delete may not remove every copy.
           </li>
           <li>
-            <b>Beta software.</b> Silvamor is new and may have bugs. Games can be lost to glitches, relays can be slow or offline, and the turn clock
-            depends on public Bitcoin block-height services.
+            <b>Beta software.</b> Silvamor is new and may have bugs. Runs can be lost to glitches, relays can be slow or offline, and each day’s deal
+            depends on public Bitcoin block services.
           </li>
         </ul>
       </Section>
@@ -111,13 +111,13 @@ export function TermsPage({ standalone }: { standalone?: boolean }) {
       <Section title="3. No custody, no payment processing">
         <p>
           <b>We never hold, receive, send or control anyone’s money.</b> Silvamor has no balances, wallets or accounts. When you pay someone (
-          {FEATURES.wagers ? 'a wager or a tip' : 'a tip'}), your own Lightning wallet pays their Lightning address directly; the payment is between
+          a tip), your own Lightning wallet pays their Lightning address directly; the payment is between
           you, your wallet provider and theirs. We aren’t a party to it, don’t process it, can’t see inside it beyond the public zap receipt, and
           can’t reverse, refund or recover it. We charge no fees and take no share of any payment.
         </p>
         <p>
-          <b>Tips are gifts.</b> You can tip a sprite artist, or another player from their profile or after a game. A tip is voluntary, isn’t tied to
-          who won or lost, buys nothing, and can’t be refunded. Silvamor never offers tips before or during a game.
+          <b>Tips are gifts.</b> You can tip a sprite artist, or another player from their profile. A tip is voluntary, isn’t tied to any score,
+          buys nothing, and can’t be refunded.
         </p>
         <p>
           If you connect a wallet (Nostr Wallet Connect), the connection is stored only on your device and talks to your wallet directly. Give it a
@@ -125,30 +125,12 @@ export function TermsPage({ standalone }: { standalone?: boolean }) {
         </p>
       </Section>
 
-      {!FEATURES.wagers ? (
-        <Section title="4. No betting">
-          <p>
-            Silvamor doesn’t offer wagers or any way to bet on games, and it isn’t a gambling service. Don’t use it, including its chat or tips, to
-            arrange bets.
-          </p>
-        </Section>
-      ) : (
-        <Section title="4. Friendly wagers">
-          <ul className={ul}>
-            <li>
-              <b>Wagering may be illegal where you live.</b> Many places, including many US states, restrict or prohibit betting money on games,
-              including games of skill. Only use wagers where doing so is lawful for you; if you’re not sure, don’t. By turning on or accepting a
-              wager you confirm it is legal for you.
-            </li>
-            <li>
-              Wagers are an <b>honor system</b> between players. Silvamor doesn’t hold stakes, decide disputes, enforce payment, or guarantee that
-              anyone pays. Honor badges are calculated automatically from public data and may be wrong.
-            </li>
-            <li>Keep wagers small and friendly. Silvamor is not a gambling service and makes no money from wagers.</li>
-            <li>We may limit or switch off wagers in Silvamor at any time.</li>
-          </ul>
-        </Section>
-      )}
+      <Section title="4. No betting">
+        <p>
+          Silvamor doesn’t offer wagers or any way to bet on games, and it isn’t a gambling service. Don’t use it, including its tips, to arrange
+          bets. Daily Deal scores and leaderboard places win nothing and aren’t prizes; don’t bet on them.
+        </p>
+      </Section>
 
       <Section title="5. Sprites">
         <ul className={ul}>
@@ -178,6 +160,10 @@ export function TermsPage({ standalone }: { standalone?: boolean }) {
           <li>harass, threaten or impersonate people, or post hateful, sexual, violent or illegal content;</li>
           <li>infringe copyrights, trademarks or other rights;</li>
           <li>cheat, exploit bugs, interfere with other players, or overload the site, relays or services Silvamor uses;</li>
+          <li>
+            publish more than one run a day, or use other keys, scripts or solvers to practise and publish only your best: leaderboards work on the
+            honour system, and we may hide runs or players from Silvamor’s leaderboards if we believe they cheat;
+          </li>
           <li>attack the software, or try to get at other people’s keys, wallets or data.</li>
         </ul>
         <p>We may block access to {SITE} or our services for anyone who breaks these rules.</p>
@@ -186,7 +172,7 @@ export function TermsPage({ standalone }: { standalone?: boolean }) {
       <Section title="7. Other services">
         <p>
           Silvamor connects you to services run by others: Nostr relays, signer apps and browser extensions, Lightning wallets and providers, Blossom
-          file servers, Bitcoin block-height services, and push notification services. They have their own terms and we aren’t responsible for them.
+          file servers, Bitcoin block services, and push notification services. They have their own terms and we aren’t responsible for them.
         </p>
       </Section>
 
@@ -200,7 +186,7 @@ export function TermsPage({ standalone }: { standalone?: boolean }) {
         <p>
           SILVAMOR IS PROVIDED “AS IS” AND “AS AVAILABLE”, WITHOUT WARRANTIES OF ANY KIND, WHETHER EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF
           MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE AND NON-INFRINGEMENT. We don’t promise that it will be available, accurate, secure
-          or free of errors, or that games, payments or messages will reach anyone.
+          or free of errors, that runs, payments or notifications will reach anyone, or that scores and leaderboards are correct or complete.
         </p>
       </Section>
 
@@ -221,7 +207,7 @@ export function TermsPage({ standalone }: { standalone?: boolean }) {
 
       <Section title="12. Changes">
         <p>
-          We may update these terms. The date above shows the latest version; continuing to use Silvamor after a change means you accept it. If part
+          We may update these terms. The effective date at the top of this page shows the latest version; continuing to use Silvamor after a change means you accept it. If part
           of these terms can’t be enforced, the rest still applies.
         </p>
       </Section>
@@ -234,15 +220,15 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
     <Shell title="privacy policy" standalone={standalone}>
       <p>
         Silvamor is built so we learn as little as possible about you. There are no accounts, no analytics, no ads, no tracking cookies, and we never
-        see your private key. This policy explains what does get shared, and with whom.
+        see your private key. Our relay, relay.silvamor.com, stores the public events Silvamor publishes, for a limited time (section 4). This policy explains what
+          does get shared, and with whom.
       </p>
 
       <Section title="1. What’s public on Nostr">
         <p>
-          Everything you publish through Silvamor is a signed Nostr event sent to public relays: your profile, game listings, joins and moves, in-game
-          chat, groups, sprites and sprite choices, reports, featured picks, and zap receipts for {FEATURES.wagers ? 'wagers and tips' : 'tips'}.
-          Anyone can read, copy and keep these, and they’re tied to your public key. Chat is visible to anyone reading the relays (Silvamor only shows
-          it to the players). Don’t publish anything you want kept private.
+          Everything you publish through Silvamor is a signed Nostr event sent to public relays: your profile, follow list and relay list, your Daily Deal runs (every move
+          and the score, so anyone can see how you played), groups, sprites and sprite choices, reports, featured picks, and zap receipts for tips. Anyone can read, copy and keep these, and
+          they’re tied to your public key. Don’t publish anything you want kept private.
         </p>
       </Section>
 
@@ -252,7 +238,8 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
           <li>your login: your public key, plus, if you chose to be remembered, your private key encrypted with your password (NIP-49);</li>
           <li>a device key used only to talk to your signer app;</li>
           <li>your relay list, notification history and settings, and a cached copy of your shop settings;</li>
-          <li>if you connect one, your wallet connection (Nostr Wallet Connect), and whether auto-pay is on.</li>
+          <li>your Daily Deal run in progress, and the Bitcoin block that seeded the day’s deal;</li>
+          <li>if you connect one, your wallet connection (Nostr Wallet Connect).</li>
         </ul>
         <p>
           We never receive these. Logging out removes your login; the rest stays on the device until you clear your browser’s data for {SITE}. To
@@ -269,7 +256,7 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
         <ul className={ul}>
           <li>Nostr relays (the defaults and any you add);</li>
           <li>your signer app or browser extension, if you use one;</li>
-          <li>Bitcoin block-height services (mempool.space and blockstream.info by default) for turn clocks;</li>
+          <li>Bitcoin block services (mempool.space and blockstream.info by default) for each day’s deal;</li>
           <li>Lightning address providers and wallets, when checking or making payments;</li>
           <li>Blossom file servers (blossom.primal.net by default), when you upload a picture or sprite, and image hosts when pictures are shown;</li>
           <li>websites in profiles, when checking a NIP-05 address.</li>
@@ -284,9 +271,17 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
             type). We use these only to run and protect the site, and keep them for a short time.
           </li>
           <li>
-            <b>Push notifications (optional).</b> If you turn them on, the push service stores your public key and your browser’s push address so it
-            can notify you about your games. It reads only public game events. Your browser’s push provider (such as Google, Apple or Mozilla)
-            delivers the notifications. Turning notifications off deletes your push address.
+            <b>Push notifications (optional).</b> If you turn them on, the push service stores your public key, your browser’s push address, and which
+            notices it has already sent you. To decide when to notify you, it reads public Daily Deal runs and follow lists. Your browser’s push
+            provider (such as Google, Apple or Mozilla) delivers the notifications. Turning notifications off deletes your push address.
+          </li>
+          <li>
+            <b>Our relay.</b> Silvamor always publishes your Daily Deal runs, profile, follow list, relay list, groups, sprites, sprite choices,
+            reports and tip receipts to relay.silvamor.com, which we run, as well as to the relays you choose. We use them to show leaderboards and
+            send notifications. Runs and tip receipts are deleted after <b>30 days</b>. Sprite reports are kept so moderation keeps working. Profiles,
+            follow lists, relay lists, groups, sprites and settings are kept only in their latest version: a newer one replaces the old, and they’re
+            deleted when you delete them or ask us to.
+            The relay also records the IP address and time of each connection, which we keep for no more than <b>30 days</b>.
           </li>
         </ul>
         <p>We don’t sell or share personal information, and we don’t use it for advertising.</p>
@@ -294,7 +289,7 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
 
       <Section title="5. Payments and tips">
         <p>
-          {FEATURES.wagers ? 'Wager payments and tips go' : 'Tips go'} straight from your wallet to the other person’s Lightning address. We aren’t
+          Tips go straight from your wallet to the other person’s Lightning address. We aren’t
           involved and don’t see them, except for the public zap receipt the recipient’s provider publishes, which shows the payer, the recipient, the
           amount and what it was for.
         </p>
@@ -302,8 +297,15 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
 
       <Section title="6. Your choices">
         <ul className={ul}>
-          <li>Use a new Nostr key if you want a separate identity for games.</li>
-          <li>Choose your own relays, signer, wallet, Blossom server and push service, or none.</li>
+          <li>Use a new Nostr key if you want a separate identity for Silvamor.</li>
+          <li>
+            Choose your own relays (Silvamor always uses relay.silvamor.com as well, so leaderboards work), signer, wallet, Blossom server and push
+            service.
+          </li>
+          <li>
+            Ask us to delete your events and connection records from relay.silvamor.com: <NostrContact>message us on Nostr</NostrContact> from your
+            key. We can’t delete copies on other relays or in other apps.
+          </li>
           <li>Turn push notifications off at any time on the Alerts page.</li>
           <li>
             Ask relays to delete your events (Silvamor sends deletion requests where it offers to delete something), though relays and others may keep
@@ -320,7 +322,7 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
       </Section>
 
       <Section title="8. Changes">
-        <p>We may update this policy; the date above shows the latest version.</p>
+        <p>We may update this policy; the effective date at the top of this page shows the latest version.</p>
       </Section>
     </Shell>
   )

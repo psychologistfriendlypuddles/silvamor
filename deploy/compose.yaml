@@ -1,0 +1,56 @@
+# relay.silvamor.com: nostr-rs-relay with the Silvamor relay guard beside it (docs/DEPLOY.md, "Relays").
+#
+# From the repository root:
+#   cp deploy/nostr-rs-relay.toml deploy/config.toml   # then merge in your own [info] and other settings
+#   docker compose -f deploy/compose.yaml up -d --build
+#
+# Point Nginx Proxy Manager's relay.silvamor.com proxy host (Websockets Support on) at port 8080.
+
+services:
+  relay:
+    image: scsibug/nostr-rs-relay:latest # pin to the version you run
+    restart: unless-stopped
+    # Only the proxy should reach the relay: the per-IP limits trust the address header it sets,
+    # which a client connecting directly could fake. Publish on localhost (or join the proxy's
+    # Docker network and publish nothing).
+    ports:
+      - 127.0.0.1:8080:8080
+    volumes:
+      # z: on SELinux hosts (Fedora, RHEL…) containers can't read the file without it, and the relay
+      # then silently runs on defaults with no allowlist and no guard. Harmless elsewhere.
+      - ./config.toml:/usr/src/app/config.toml:ro,z
+      - relay-data:/usr/src/app/db
+    depends_on:
+      guard:
+        condition: service_healthy
+    # The relay's log holds IP addresses; the privacy policy promises they're gone within 30 days.
+    # Send it to journald and set MaxRetentionSec=30day in /etc/systemd/journald.conf.
+    logging:
+      driver: journald
+
+  guard:
+    build:
+      context: ..
+      dockerfile: guard/Dockerfile
+    restart: unless-stopped
+    # The relay image's appuser, which owns the database: the guard deletes old events from it.
+    user: '1000:1000'
+    environment:
+      RELAY_DB: /relay-data/nostr.db
+      DRY_RUN: 'true' # 'false' once the logged counts look right (back up nostr.db first)
+    volumes:
+      - relay-data:/relay-data
+    # No ports: only the relay talks to the guard, as http://guard:50051 on this network.
+    # Healthy while it answers admission requests (a real round trip, not just an open port).
+    # Also in guard/Dockerfile, but Podman's image format drops it, so it's spelled out here.
+    healthcheck:
+      test: [CMD, node, server.mjs, --health]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: journald
+
+volumes:
+  relay-data:

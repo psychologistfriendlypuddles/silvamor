@@ -93,24 +93,21 @@ export class LocalKeySigner implements AppSigner {
 
 /**
  * Permissions asked for when connecting, per event kind, so signer apps can offer
- * "always allow" for Silvamor's events instead of asking on every move.
+ * "always allow" for Silvamor's events instead of asking every time.
  */
 export const NIP46_PERMS = [
   'get_public_key',
   'sign_event:0', // profile
   'sign_event:5', // delete a group
-  'sign_event:1111', // in-game chat
-  'sign_event:1950', // join a game
-  'sign_event:1951', // game actions: start, move, resign
+  'sign_event:1952', // Daily Deal runs
   'sign_event:1984', // report a sprite
-  'sign_event:9734', // zap requests: paying a wager or tipping an artist
+  'sign_event:9734', // zap requests: tipping a player or an artist
   'sign_event:10002', // relay list
   'sign_event:24242', // Blossom upload authorization
   'sign_event:27235', // signed requests to the push service (NIP-98)
   'sign_event:30000', // groups
   'sign_event:30004', // featured sprites
   'sign_event:30078', // sprite choice and private settings
-  'sign_event:30950', // game listings
   'sign_event:30951', // publishing a sprite
   'nip44_encrypt', // invite-link secrets and settings, encrypted to yourself
   'nip44_decrypt',

@@ -1,9 +1,10 @@
 // Minimal in-memory Nostr relay for local development and end-to-end tests.
 // Usage: npm run relay   (then start the app with VITE_RELAYS=ws://localhost:7777)
 //
-// It also fakes a Bitcoin block-height source for the turn clock:
+// It also fakes a Bitcoin block source (the day's seed block for Daily Deal):
 //   GET  /api/blocks/tip/height   -> current height (start the app with
 //                                    VITE_BLOCK_SOURCES=http://localhost:7777/api/blocks/tip/height)
+//   GET  /api/blocks/<height>     -> up to 10 blocks from <height> down (hash and timestamp, as Esplora)
 //   POST /mine?blocks=N           -> "mines" N blocks (default 1)
 //
 // And a pretend Lightning provider, so every `<name>@localhost:<port>` is a zappable
@@ -31,6 +32,18 @@ export function startDevRelay({ port = 7777, blockHeight = 800_000 } = {}) {
   const events = new Map() // id -> event
   const subs = new Map() // ws -> Map(subId -> filters)
   let height = blockHeight
+  // Blocks before the relay started came every 10 minutes; later ones when they were mined.
+  const startedAt = Math.floor(Date.now() / 1000)
+  const minedAt = new Map() // height -> timestamp
+  const mine = (blocks) => {
+    for (let i = 0; i < blocks; i++) minedAt.set(++height, Math.floor(Date.now() / 1000))
+    return height
+  }
+  const block = (h) => ({
+    id: createHash('sha256').update(`dev-block-${h}`).digest('hex'),
+    height: h,
+    timestamp: minedAt.get(h) ?? startedAt - (blockHeight - h) * 600,
+  })
   const providerKey = generateSecretKey()
   const invoices = new Map() // bolt11 -> zap request JSON
   const blobs = new Map() // sha256 -> { type, body }
@@ -144,10 +157,13 @@ export function startDevRelay({ port = 7777, blockHeight = 800_000 } = {}) {
     if (lightning(req, res, url) !== false) return
     if (blossom(req, res, url) !== false) return
     if (req.method === 'GET' && url.pathname === '/api/blocks/tip/height') return res.end(String(height))
-    if (req.method === 'POST' && url.pathname === '/mine') {
-      height += Number(url.searchParams.get('blocks') ?? 1)
-      return res.end(String(height))
+    const blocksFrom = url.pathname.match(/^\/api\/blocks\/(\d+)$/)
+    if (req.method === 'GET' && blocksFrom) {
+      const top = Math.min(Number(blocksFrom[1]), height)
+      res.setHeader('Content-Type', 'application/json')
+      return res.end(JSON.stringify(Array.from({ length: Math.max(0, Math.min(10, top)) }, (_, i) => block(top - i))))
     }
+    if (req.method === 'POST' && url.pathname === '/mine') return res.end(String(mine(Number(url.searchParams.get('blocks') ?? 1))))
     res.statusCode = 404
     res.end()
   })
@@ -187,7 +203,7 @@ export function startDevRelay({ port = 7777, blockHeight = 800_000 } = {}) {
       resolve({
         url: `ws://localhost:${port}`,
         heightUrl: `http://localhost:${port}/api/blocks/tip/height`,
-        mine: (blocks = 1) => (height += blocks),
+        mine: (blocks = 1) => mine(blocks),
         close: () =>
           new Promise((done) => {
             for (const ws of subs.keys()) ws.terminate()

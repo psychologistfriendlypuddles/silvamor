@@ -1,0 +1,55 @@
+# relay.silvamor.com on nostr-rs-relay: open to everyone, but only for Silvamor's events.
+# Merge these settings into your relay's config.toml (keep your own [info], [database] and
+# [network] sections), then restart the relay. See docs/DEPLOY.md, "Relays".
+
+[network]
+# The relay sits behind Nginx Proxy Manager, so every connection seems to come from the proxy.
+# Read each client's real address from the header the proxy sets (it overwrites any value a client
+# sends), so the guard's per-IP limits apply per player, not to everyone at once.
+remote_ip_header = "x-real-ip"
+
+[options]
+# Runs are dated by the day they belong to; nothing legitimate comes from the future.
+reject_future_seconds = 1800
+
+[authorization]
+# Open the relay to every player: remove (or comment out) any pubkey_whitelist.
+#pubkey_whitelist = []
+
+[limits]
+# Everything else (notes, reactions, DMs, long-form posts, …) is refused at the door.
+# These are the kinds Silvamor publishes here (guard/src/policy.ts lists the same).
+event_kind_allowlist = [
+  0,      # profiles: names and pictures on the leaderboard
+  3,      # follow lists: who's on each player's leaderboard and who they hear about
+  5,      # deleting a group
+  1952,   # Daily Deal runs
+  1984,   # sprite reports
+  9735,   # zap receipts for tips (published by the recipient's Lightning provider)
+  10002,  # relay lists
+  30000,  # groups (NIP-51 follow sets)
+  30004,  # featured sprites
+  30078,  # sprite choice and private settings (other apps use this kind too)
+  30951,  # sprites
+]
+
+# Room for follow lists of up to about 3,500 people (~72 bytes each). The guard holds every
+# other kind far smaller (a run 8 KB, a report 1 KB; see guard/src/policy.ts).
+max_event_bytes = 262144
+max_ws_message_bytes = 524288
+max_ws_frame_bytes = 524288
+
+# This limit is for the whole server, not per connection: keep it well above your busiest
+# minute (everyone finishing a run right after the day's block), or leave it unset.
+#messages_per_sec = 50
+
+# Refuse "everything of kind X" or "everything by author Y" dumps; Silvamor always asks narrowly.
+limit_scrapers = true
+
+# The relay guard (guard/) checks what a config file can't: each kind has a size cap and a shape
+# check (runs must replay to their score), and each author and IP address is rate-limited. The
+# relay asks it about every event; if the guard is unreachable, the relay admits events (the
+# allowlist above still applies). "guard" is its service name in deploy/compose.yaml.
+[grpc]
+event_admission_server = "http://guard:50051"
+restricts_write = true

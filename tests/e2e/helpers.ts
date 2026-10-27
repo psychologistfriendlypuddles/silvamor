@@ -3,18 +3,11 @@ import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } fr
 import { Relay } from 'nostr-tools/relay'
 import * as nip19 from 'nostr-tools/nip19'
 import { readFileSync } from 'node:fs'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
+import { MAX_CARDS, dailyDealRules, scorePlay, type DailyDealMove, type DailyDealState } from '../../src/games/dailydeal/rules'
 
 export const RELAY = 'ws://localhost:7777'
 
-/** The test build with wagers switched on (see playwright.config.ts); the default build has them off. */
-export const WAGERS_URL = 'http://localhost:4175'
-
-/** "Mines" blocks on the test relay's fake Bitcoin block-height source; returns the new height. */
-export async function mine(blocks = 1): Promise<number> {
-  const res = await fetch(`http://localhost:7777/mine?blocks=${blocks}`, { method: 'POST' })
-  return Number(await res.text())
-}
 
 export interface Player {
   name: string
@@ -115,60 +108,87 @@ export async function goTo(player: Player, path: string) {
   }, path)
 }
 
-export interface GameOptions {
-  game?: 'Tic-Tac-Toe' | 'Four-in-a-Row' | 'Dots and Boxes' | 'Chess' | 'Reversi' | 'Checkers' | 'Go' | 'Gomoku' | "Nine Men's Morris"
-  /** Dots and boxes board size, e.g. '8×8'. */
-  size?: string
-  /** Shown in the lobby; tests use unique names because the relay outlives each test. */
-  title?: string
-  access?: 'Anyone' | 'Invite link' | 'Invite only' | 'Group'
-  timer?: '1 block' | '3 blocks' | '6 blocks' | '144 blocks' | '432 blocks' | 'None'
-  group?: string
-  /** Wager in sats (the player needs `wallet`). */
-  wager?: number
-}
+// --- Daily Deal, worked out here the way the protocol says (docs/PROTOCOL.md, "Daily Deal") ---
 
-/** Host creates a tic-tac-toe game; returns its path (/game/naddr…). */
-export async function createGame(host: Player, opts: GameOptions = {}) {
-  const { page } = host
-  await goTo(host, '/')
-  await page.getByRole('button', { name: 'Create game', exact: true }).first().click()
-  const form = page.locator('form')
-  if (opts.game) await form.getByRole('button', { name: new RegExp(`${opts.game}$`) }).click()
-  if (opts.size) await form.getByRole('button', { name: opts.size, exact: true }).click()
-  if (opts.title) await form.getByPlaceholder('Friday night showdown').fill(opts.title)
-  if (opts.access) await form.getByRole('button', { name: opts.access, exact: true }).click()
-  if (opts.group) await form.getByRole('button', { name: new RegExp(opts.group, 'i') }).click()
-  if (opts.timer) await form.getByRole('button', { name: opts.timer, exact: true }).click()
-  if (opts.wager) {
-    await form.getByLabel('Wager', { exact: true }).check()
-    await form.getByLabel('Wager in sats').fill(String(opts.wager))
-    await form.getByLabel(/Wagering on games is legal where I live/).check()
+export const today = () => new Date().toISOString().slice(0, 10)
+
+/** The test relay's first block at or after 00:00 UTC today: the day's seed block. */
+export async function dayBlock() {
+  const midnight = Date.parse(`${today()}T00:00:00Z`) / 1000
+  const blocks: { id: string; height: number; timestamp: number }[] = []
+  for (let h = Number(await (await fetch('http://localhost:7777/api/blocks/tip/height')).text()); h > 0; h -= 10) {
+    const page: typeof blocks = await (await fetch(`http://localhost:7777/api/blocks/${h}`)).json()
+    blocks.push(...page)
+    if (page.every((b) => b.timestamp < midnight - 7200)) break
   }
-  await form.getByRole('button', { name: 'Create game' }).click()
-  await expect(page.getByText('Waiting for an opponent…')).toBeVisible()
-  return new URL(page.url()).pathname
+  return blocks.filter((b) => b.timestamp >= midnight).sort((a, b) => a.height - b.height)[0]
 }
 
-export async function joinGame(player: Player) {
-  await player.page.getByRole('button', { name: 'Join game' }).click()
+/** Today's rules, as the app deals them. */
+export async function todaysRules() {
+  const block = await dayBlock()
+  return { block, rules: dailyDealRules(createHash('sha256').update(`silvamor/dailydeal/${today()}/${block.id}`).digest('hex')) }
 }
 
-/** Waits until the game has started for this player; returns true if it's their move. */
-export async function waitForStart(player: Player) {
-  const status = player.page.getByText(/^(Your turn!|Waiting for your opponent…)$/)
-  await expect(status).toBeVisible()
-  return (await status.textContent()) === 'Your turn!'
+export type Strategy = (s: DailyDealState) => number[]
+const byRank = (s: DailyDealState) => [...s.hand].sort((a, b) => (b % 13) - (a % 13) || Math.floor(a / 13) - Math.floor(b / 13))
+const subsets = (cards: number[]): number[][] =>
+  cards.flatMap((c, i) => [[c], ...subsets(cards.slice(i + 1)).filter((s) => s.length < MAX_CARDS).map((s) => [c, ...s])])
+/** Ways to play each hand: the board's top five cards (as the UI tests pick them), the lowest card, and the best play. */
+export const STRATEGIES: Record<'topFive' | 'lowest' | 'bottomFive' | 'highest' | 'best', Strategy> = {
+  topFive: (s) => byRank(s).slice(0, 5),
+  lowest: (s) => byRank(s).slice(-1),
+  bottomFive: (s) => byRank(s).slice(-5),
+  highest: (s) => byRank(s).slice(0, 1),
+  best: (s) => subsets(s.hand).sort((a, b) => scorePlay(b, s.perks, s.handsLeft === 1).points - scorePlay(a, s.perks, s.handsLeft === 1).points)[0],
 }
 
-/** Waits for this player's turn, then presses a board button (e.g. "Square 5", "Column 3", "Line 21"). */
-export async function playOn(player: Player, button: string) {
-  await expect(player.page.getByText('Your turn!')).toBeVisible()
-  await player.page.getByRole('button', { name: button, exact: true }).click()
+/** A whole run on today's deal, playing every hand with `choose`. */
+export async function runWith(choose: Strategy) {
+  const { block, rules } = await todaysRules()
+  let state = rules.init()
+  const moves: DailyDealMove[] = []
+  while (!rules.outcome(state)) {
+    const move = { play: choose(state) }
+    state = rules.apply(state, move)
+    moves.push(move)
+  }
+  return { block, moves, score: state.score }
 }
 
-/** Tic-tac-toe: plays a cell (0-8). */
-export const play = (player: Player, cell: number) => playOn(player, `Square ${cell + 1}`)
+/** Publishes a finished run for today, as the app would (kind 1952); returns its score. */
+export async function publishRun(sk: Uint8Array, opts: { run?: Awaited<ReturnType<typeof runWith>>; beaten?: string[] } = {}) {
+  const run = opts.run ?? (await runWith(STRATEGIES.lowest))
+  await seed({
+    sk,
+    template: {
+      kind: 1952,
+      created_at: Math.floor(Date.now() / 1000),
+      content: JSON.stringify({ moves: run.moves }),
+      tags: [
+        ['L', 'silvamor/dailydeal'],
+        ['l', today(), 'silvamor/dailydeal'],
+        ['block', String(run.block.height), run.block.id],
+        ['score', String(run.score)],
+        ...(opts.beaten ?? []).map((p) => ['p', p]),
+      ],
+    },
+  })
+  return run.score
+}
+
+/**
+ * A player who follows `friends` and has already played today, logged in on the Daily Deal
+ * page: their friends who played stand on the podium (with their sprites).
+ */
+export async function onPodium(browser: Browser, name: string, friends: string[], opts: PlayerOptions = {}) {
+  const player = await newPlayer(browser, name, opts)
+  await seed(followsEvent(player.sk, friends))
+  await publishRun(player.sk)
+  await login(player)
+  await expect(player.page.getByRole('list', { name: 'Podium' })).toBeVisible()
+  return player
+}
 
 export function expectNoErrors(...players: Player[]) {
   for (const p of players) expect(p.errors, `${p.name} had page errors`).toEqual([])

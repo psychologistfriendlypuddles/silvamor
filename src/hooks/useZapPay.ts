@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { buildZapRequest, fetchLnurlPay, requestZapInvoice } from '../lib/wager'
+import { buildZapRequest, fetchLnurlPay, requestZapInvoice } from '../lib/zaps'
 import { payInvoice, paymentMethods } from '../lib/payments'
 import { gameWriteRelays } from '../stores/relays'
 import { useProfile } from '../stores/profiles'
@@ -10,7 +10,7 @@ import { useDisplayName } from './useDisplayName'
 export type PayMethod = 'nwc' | 'webln' | 'qr'
 
 /**
- * Paying someone with a zap, about an addressable event (a wager's game, a sprite) or not (a tip):
+ * Paying someone with a zap, about an addressable event (a sprite) or not (a tip to a player):
  * fetches an invoice from their Lightning address, then pays it with a connected
  * wallet, a browser wallet, or shows it as a QR code.
  */

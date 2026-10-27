@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { SimplePool } from 'nostr-tools/pool'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import * as nip44 from 'nostr-tools/nip44'
@@ -40,12 +40,26 @@ function fakeSignerApp(delayMs: number, opts: { ignoreSigning?: boolean } = {}) 
     userSk,
     userPk,
     requests,
-    /** "Scans" the app's QR code and approves the connection. */
-    approve: (uri: string) => {
+    /**
+     * "Scans" the app's QR code and approves the connection. Scanning takes a person a moment;
+     * the app starts listening for the answer just after showing the code.
+     */
+    approve: async (uri: string) => {
+      await new Promise((r) => setTimeout(r, 1000))
       const u = new URL(uri)
       return reply(u.host || u.pathname.replace(/^\/+/, ''), { id: 'connect', result: u.searchParams.get('secret') })
     },
     close: () => pool.destroy(),
+  }
+}
+
+/** Plays today's Daily Deal to the end, a card at a time; the app then publishes the run. */
+async function playThrough(page: Page) {
+  const hands = page.getByLabel('Hands', { exact: true })
+  await expect(hands).toBeVisible({ timeout: 15_000 })
+  for (let left = Number(await hands.textContent()); left > 0; left--) {
+    await page.getByRole('group', { name: 'Your hand' }).getByRole('button').first().click()
+    await page.getByRole('button', { name: 'Play hand' }).click()
   }
 }
 
@@ -57,17 +71,17 @@ test('logging in with a signer app, and a hint while it waits for approval', asy
   await page.getByRole('button', { name: /Signer app/ }).click()
   const uri = await page.locator('a[href^="nostrconnect:"]').getAttribute('href')
   // The app asks for permission per event kind, so the signer can offer "always allow".
-  expect(new URL(uri!).searchParams.get('perms')).toContain('sign_event:1951')
+  expect(new URL(uri!).searchParams.get('perms')).toContain('sign_event:1952')
   await signer.approve(uri!)
   await expect(page.getByRole('link', { name: 'silvamor home' }).first()).toBeVisible({ timeout: 15_000 })
 
-  // Creating a game needs a signature: while the signer app hasn't answered, say so.
-  await page.getByRole('button', { name: 'Create game', exact: true }).first().click()
-  await page.locator('form').getByRole('button', { name: 'Create game' }).click()
+  // Publishing a finished run needs a signature: while the signer app hasn't answered, say so.
+  await playThrough(page)
   await expect(page.getByText('Waiting for your signer app…')).toBeVisible()
-  await expect(page.getByText('Waiting for an opponent…')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByLabel('Final score')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('list', { name: 'Podium' })).toBeVisible({ timeout: 15_000 })
   await expect(page.getByText('Waiting for your signer app…')).toBeHidden()
-  expect(signer.requests).toContain('sign_event:30950')
+  expect(signer.requests).toContain('sign_event:1952')
   signer.close()
 })
 
@@ -82,8 +96,7 @@ test('a signer that never answers: Reconnect, reusing the same device connection
   await signer.approve(firstUri.href)
   await expect(page.getByRole('link', { name: 'silvamor home' }).first()).toBeVisible({ timeout: 15_000 })
 
-  await page.getByRole('button', { name: 'Create game', exact: true }).first().click()
-  await page.locator('form').getByRole('button', { name: 'Create game' }).click()
+  await playThrough(page)
   await expect(page.getByText('Waiting for your signer app…')).toBeVisible()
   await page.clock.fastForward('00:21')
   await page.getByRole('button', { name: 'Reconnect' }).click()
