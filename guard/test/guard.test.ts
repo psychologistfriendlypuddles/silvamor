@@ -7,19 +7,29 @@ import * as grpc from '@grpc/grpc-js'
 import * as protoLoader from '@grpc/proto-loader'
 import protobuf from 'protobufjs'
 import { hexToBytes } from 'nostr-tools/utils'
-import { finalizeEvent, generateSecretKey, type Event, type EventTemplate } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventTemplate } from 'nostr-tools/pure'
 import { buildRun } from '../../src/lib/nostr/dailyRuns'
 import { dailyDealRules, type DailyDealMove } from '../../src/games/dailydeal/rules'
 import { dayOf, dayStart, seedFor } from '../../src/games/dailydeal/daily'
 import { createPolicy } from '../src/policy'
-import { parseRetention, prune } from '../src/cleanup'
+import { erase, parseRetention, prune, vanishRequests } from '../src/cleanup'
 import { checkHealth, configFromEnv, startGuard } from '../src/server'
 import nauthzProto from '../proto/nauthz.proto?raw'
 
+const HOME = 'wss://relay.silvamor.com'
 const day = dayOf(new Date())
 const block = { height: 900_000, hash: 'ab'.repeat(32), timestamp: dayStart(day) + 60 }
 const sk = generateSecretKey()
 const sign = (t: Partial<EventTemplate> & { kind: number }) => finalizeEvent({ created_at: Math.floor(Date.now() / 1000), tags: [], content: '', ...t }, sk)
+
+/** nostr-rs-relay's event and tag tables (schema version 18). */
+const RELAY_SCHEMA = `
+  PRAGMA foreign_keys = ON; PRAGMA user_version = 18;
+  CREATE TABLE event (id INTEGER PRIMARY KEY, event_hash BLOB NOT NULL, first_seen INTEGER NOT NULL, created_at INTEGER NOT NULL,
+    expires_at INTEGER, author BLOB NOT NULL, delegated_by BLOB, kind INTEGER NOT NULL, hidden INTEGER, content TEXT NOT NULL);
+  CREATE TABLE tag (id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL, name TEXT, value TEXT, value_hex BLOB, created_at INTEGER NOT NULL,
+    kind INTEGER NOT NULL, FOREIGN KEY(event_id) REFERENCES event(id) ON UPDATE CASCADE ON DELETE CASCADE);
+`
 
 /** A finished run on today's deal, playing the first card each hand. */
 function run(scoreOffset = 0) {
@@ -35,7 +45,7 @@ function run(scoreOffset = 0) {
 }
 
 describe('admission policy', () => {
-  const policy = () => createPolicy({ findBlock: async () => block, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
+  const policy = () => createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
 
   const sprite = 'a'.repeat(64)
   const report = (note: string, extra: string[][] = []) =>
@@ -105,14 +115,14 @@ describe('admission policy', () => {
   })
 
   it("refuses runs for a day whose block isn't mined, and admits them when no block source answers", async () => {
-    expect((await createPolicy({ findBlock: async () => null, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 }).decide(run())).permit).toBe(false)
-    const down = createPolicy({ findBlock: async () => Promise.reject(new Error('offline')), perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
+    expect((await createPolicy({ relayUrl: HOME, findBlock: async () => null, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 }).decide(run())).permit).toBe(false)
+    const down = createPolicy({ relayUrl: HOME, findBlock: async () => Promise.reject(new Error('offline')), perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
     expect((await down.decide(run())).permit).toBe(true)
   })
 
   it('limits each author to a number of events a minute', async () => {
     let t = 0
-    const p = createPolicy({ findBlock: async () => block, perMinute: 2, perIpMinute: 1000, perIpDay: 100_000, now: () => t })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 2, perIpMinute: 1000, perIpDay: 100_000, now: () => t })
     expect((await p.decide(sign({ kind: 3 }))).permit).toBe(true)
     expect((await p.decide(sign({ kind: 3 }))).permit).toBe(true)
     expect(await p.decide(sign({ kind: 3 }))).toEqual({ permit: false, message: "too many events, slow down" })
@@ -127,7 +137,7 @@ describe('limits per IP address', () => {
 
   it('caps one address per minute, however many keys it uses', async () => {
     let t = 0
-    const p = createPolicy({ findBlock: async () => block, perMinute: 100, perIpMinute: 3, perIpDay: 100, now: () => t })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 100, perIpMinute: 3, perIpDay: 100, now: () => t })
     for (let i = 0; i < 3; i++) expect((await p.decide(throwaway(), { ip: '203.0.113.7' })).permit).toBe(true)
     expect(await p.decide(throwaway(), { ip: '203.0.113.7' })).toEqual({ permit: false, message: 'too many events, slow down' })
     // Other addresses, and events whose address the relay didn't pass on, aren't affected.
@@ -139,7 +149,7 @@ describe('limits per IP address', () => {
 
   it('caps one address per day', async () => {
     let t = 0
-    const p = createPolicy({ findBlock: async () => block, perMinute: 100, perIpMinute: 100, perIpDay: 5, now: () => t })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 100, perIpMinute: 100, perIpDay: 5, now: () => t })
     for (let i = 0; i < 5; i++) {
       t += 120_000
       expect((await p.decide(throwaway(), { ip: '203.0.113.7' })).permit).toBe(true)
@@ -156,13 +166,7 @@ describe('cleanup', () => {
   function relayDb() {
     const path = join(mkdtempSync(join(tmpdir(), 'silvamor-guard-')), 'nostr.db')
     const db = new DatabaseSync(path)
-    db.exec(`
-      PRAGMA foreign_keys = ON; PRAGMA user_version = 18;
-      CREATE TABLE event (id INTEGER PRIMARY KEY, event_hash BLOB NOT NULL, first_seen INTEGER NOT NULL, created_at INTEGER NOT NULL,
-        expires_at INTEGER, author BLOB NOT NULL, delegated_by BLOB, kind INTEGER NOT NULL, hidden INTEGER, content TEXT NOT NULL);
-      CREATE TABLE tag (id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL, name TEXT, value TEXT, value_hex BLOB, created_at INTEGER NOT NULL,
-        kind INTEGER NOT NULL, FOREIGN KEY(event_id) REFERENCES event(id) ON UPDATE CASCADE ON DELETE CASCADE);
-    `)
+    db.exec(RELAY_SCHEMA)
     const add = db.prepare('INSERT INTO event (event_hash, first_seen, created_at, author, kind, content) VALUES (?, 0, ?, x\'00\', ?, \'{}\')')
     const tag = db.prepare("INSERT INTO tag (event_id, name, value, created_at, kind) VALUES (?, 'l', 'x', ?, ?)")
     const now = 1_000 * 86400
@@ -218,8 +222,8 @@ describe('gRPC event admission', () => {
 
   beforeAll(async () => {
     guard = await startGuard(
-      { listen: '127.0.0.1:0', blockSources: [], perMinute: 100, perIpMinute: 1000, perIpDay: 100_000, relayDb: null, retention: [], dryRun: true },
-      { policy: createPolicy({ findBlock: async () => block, perMinute: 100, perIpMinute: 2, perIpDay: 100_000 }), log: () => {} },
+      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perMinute: 100, perIpMinute: 1000, perIpDay: 100_000, relayDb: null, retention: [], dryRun: true },
+      { policy: createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 100, perIpMinute: 2, perIpDay: 100_000 }), log: () => {} },
     )
     const def = protoLoader.fromJSON(protobuf.parse(nauthzProto, { keepCase: true }).root.toJSON(), { keepCase: true, longs: Number, enums: Number, defaults: true })
     const { Authorization } = grpc.loadPackageDefinition(def).nauthz as unknown as { Authorization: grpc.ServiceClientConstructor }
@@ -260,5 +264,113 @@ describe('gRPC event admission', () => {
   it("passes on the sender's IP address: a third counted event from it this minute is refused", async () => {
     expect((await admit(sign({ kind: 3 }))).decision).toBe(1)
     expect(await admit(sign({ kind: 3 }))).toMatchObject({ decision: 2, message: 'too many events, slow down' })
+  })
+})
+
+describe('requests to vanish (NIP-62)', () => {
+  const me = getPublicKey(sk)
+  const other = 'b'.repeat(64)
+  const now = Math.floor(Date.now() / 1000)
+
+  /** A relay database holding a profile, a run and a report from `me`, and a profile from someone else. */
+  function storedDb() {
+    const path = join(mkdtempSync(join(tmpdir(), 'silvamor-guard-')), 'nostr.db')
+    const db = new DatabaseSync(path)
+    db.exec(RELAY_SCHEMA)
+    const add = db.prepare('INSERT INTO event (event_hash, first_seen, created_at, author, kind, content) VALUES (?, 0, ?, ?, ?, \'{}\')')
+    const tag = db.prepare("INSERT INTO tag (event_id, name, value, created_at, kind) VALUES (?, 'p', 'x', ?, ?)")
+    const rows: [string, number][] = [
+      [me, 0],
+      [me, 1952],
+      [me, 1984],
+      [other, 0],
+    ]
+    rows.forEach(([author, kind], i) => {
+      const id = Number(add.run(new Uint8Array([i + 1]), now - 3600, hexToBytes(author), kind).lastInsertRowid)
+      tag.run(id, now - 3600, kind)
+    })
+    db.close()
+    return path
+  }
+  const authors = (path: string) => {
+    const db = new DatabaseSync(path)
+    const rows = db.prepare('SELECT lower(hex(author)) AS a, kind FROM event ORDER BY id').all() as { a: string; kind: number }[]
+    const tags = (db.prepare('SELECT COUNT(*) AS n FROM tag').get() as { n: number }).n
+    db.close()
+    return { events: rows.map((r) => `${r.a === me ? 'me' : 'other'}:${r.kind}`), tags }
+  }
+
+  it('admits requests that name this relay or all relays, and refuses ones for other relays', async () => {
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
+    expect(await p.decide(sign({ kind: 62, tags: [['relay', `${HOME}/`]] }))).toEqual({ permit: true })
+    expect(await p.decide(sign({ kind: 62, tags: [['relay', 'ALL_RELAYS']] }))).toEqual({ permit: true })
+    expect(await p.decide(sign({ kind: 62, tags: [['relay', 'wss://nos.lol']] }))).toEqual({ permit: false, message: `a request to vanish here names ${HOME}` })
+  })
+
+  it("refuses a vanished key's older events, and admits newer ones", async () => {
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000, vanishedAt: (pk) => (pk === me ? now : undefined) })
+    expect(await p.decide(sign({ kind: 0, content: '{}', created_at: now - 60 }))).toEqual({ permit: false, message: 'this key asked this relay to delete its events' })
+    expect(await p.decide(sign({ kind: 0, content: '{}', created_at: now + 60 }))).toEqual({ permit: true })
+  })
+
+  it("deletes everything the key published, with its tags, and nobody else's", () => {
+    const path = storedDb()
+    expect(erase(path, me, now)).toBe(3)
+    expect(authors(path)).toEqual({ events: ['other:0'], tags: 1 })
+    expect(vanishRequests(path)).toEqual(new Map())
+    // The relay then stores the request itself, which is how the guard remembers it after a restart.
+    const db = new DatabaseSync(path)
+    db.prepare("INSERT INTO event (event_hash, first_seen, created_at, author, kind, content) VALUES (x'09', 0, ?, ?, 62, '')").run(now, hexToBytes(me))
+    db.close()
+    expect(vanishRequests(path)).toEqual(new Map([[me, now]]))
+    expect(erase(path, me, now + 10)).toBe(0)
+  })
+
+  describe('through the relay', () => {
+    let guard: Awaited<ReturnType<typeof startGuard>>
+    let path: string
+    let client: grpc.Client & { EventAdmit: (req: unknown, cb: (err: Error | null, reply: { decision: number; message?: string }) => void) => void }
+
+    beforeAll(async () => {
+      path = storedDb()
+      guard = await startGuard(
+        { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perMinute: 100, perIpMinute: 1000, perIpDay: 100_000, relayDb: path, retention: [], dryRun: true },
+        { log: () => {} },
+      )
+      const def = protoLoader.fromJSON(protobuf.parse(nauthzProto, { keepCase: true }).root.toJSON(), { keepCase: true, longs: Number, enums: Number, defaults: true })
+      const { Authorization } = grpc.loadPackageDefinition(def).nauthz as unknown as { Authorization: grpc.ServiceClientConstructor }
+      client = new Authorization(`127.0.0.1:${guard.port}`, grpc.credentials.createInsecure()) as unknown as typeof client
+    })
+    afterAll(async () => {
+      client.close()
+      await guard.close()
+    })
+    const admit = (e: Event) =>
+      new Promise<{ decision: number; message?: string }>((resolve, reject) =>
+        client.EventAdmit(
+          { event: { id: hexToBytes(e.id), pubkey: hexToBytes(e.pubkey), created_at: e.created_at, kind: e.kind, content: e.content, tags: e.tags.map((values) => ({ values })), sig: hexToBytes(e.sig) } },
+          (err, reply) => (err ? reject(err) : resolve(reply)),
+        ),
+      )
+
+    it('deletes the key\'s events, lets the request in, and keeps refusing what it deleted, even in a dry run', async () => {
+      expect((await admit(sign({ kind: 62, tags: [['relay', HOME]] }))).decision).toBe(1)
+      expect(authors(path).events).toEqual(['other:0'])
+      expect(await admit(sign({ kind: 0, content: '{}', created_at: now - 60 }))).toMatchObject({ decision: 2, message: 'this key asked this relay to delete its events' })
+    })
+
+    it('refuses a request when it has no database to delete from', async () => {
+      const bare = await startGuard(
+        { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perMinute: 100, perIpMinute: 1000, perIpDay: 100_000, relayDb: null, retention: [], dryRun: true },
+        { log: () => {} },
+      )
+      await guard.close()
+      guard = bare
+      const def = protoLoader.fromJSON(protobuf.parse(nauthzProto, { keepCase: true }).root.toJSON(), { keepCase: true, longs: Number, enums: Number, defaults: true })
+      const { Authorization } = grpc.loadPackageDefinition(def).nauthz as unknown as { Authorization: grpc.ServiceClientConstructor }
+      client.close()
+      client = new Authorization(`127.0.0.1:${bare.port}`, grpc.credentials.createInsecure()) as unknown as typeof client
+      expect((await admit(sign({ kind: 62, tags: [['relay', HOME]] }))).decision).toBe(2)
+    })
   })
 })

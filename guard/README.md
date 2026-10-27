@@ -1,6 +1,6 @@
 # Silvamor relay guard
 
-A small companion to relay.silvamor.com (nostr-rs-relay). It does two jobs:
+A small companion to relay.silvamor.com (nostr-rs-relay). It does these jobs:
 
 - **Event admission.** The relay asks it about every incoming event (gRPC, nostr-rs-relay's
   `nauthz` API) before storing it. It admits only Silvamor's event kinds, and gives each a size
@@ -20,6 +20,13 @@ A small companion to relay.silvamor.com (nostr-rs-relay). It does two jobs:
 - **Clean-up.** nostr-rs-relay never deletes old events. Once a day the guard deletes events
   older than the privacy policy allows (runs and tip receipts after 30 days) straight from
   the relay's SQLite file. Sprite reports are kept, so moderation keeps working.
+- **Requests to vanish.** "Delete my data" on the Profile page publishes a NIP-62 request to vanish
+  naming this relay (`RELAY_URL`). Before the relay stores it, the guard deletes every event that
+  key published here, then refuses any of them uploaded again (anything dated before the
+  request), so a copy from another relay can't bring them back. The request itself is kept: it's
+  how the guard remembers, and it holds only the key and the time. This happens even with
+  `DRY_RUN=true`, because the player asked for it. Without `RELAY_DB` the guard refuses requests
+  to vanish, so the player is told nothing was deleted.
 
 If the guard is down, the relay admits events (still only the kinds its own allowlist accepts),
 so an outage loosens the rules but loses nothing. If no Bitcoin block source answers, runs are
@@ -59,7 +66,8 @@ docker compose -f deploy/compose.yaml up -d --build
 | `PER_MINUTE` | `30` | Events one author may publish per minute |
 | `PER_IP_MINUTE` | `60` | Events one IP address may publish per minute, whatever keys it uses |
 | `PER_IP_DAY` | `2000` | Events one IP address may publish per day, whatever keys it uses |
-| `RELAY_DB` | none | The relay's SQLite file. Without it, there's no clean-up |
+| `RELAY_URL` | `wss://relay.silvamor.com` | This relay's address, which requests to vanish must name (or `ALL_RELAYS`) |
+| `RELAY_DB` | none | The relay's SQLite file. Without it, there's no clean-up and no requests to vanish |
 | `RETENTION` | `1952:30,9735:30` | What to delete, as `kind:days` pairs: by default runs and tip receipts after 30 days, as the privacy policy promises. Change it only together with the policy |
 | `DRY_RUN` | `true` | `false` to actually delete; otherwise clean-up only counts |
 

@@ -21,6 +21,7 @@ Standard Nostr events the app also uses:
 | `30078` | NIP-78 | Sprite choice (`d=silvamor/sprite`) and private settings (`d=silvamor/moderation`, NIP-44 encrypted to yourself) |
 | `1984` | NIP-56 | Sprite reports |
 | `5` | NIP-09 | Deleting a group |
+| `62` | NIP-62 | "Delete my data": a request to vanish naming only Silvamor's relay (`relay` tag), sent there alone |
 | `10000` | NIP-51 | Mute list (read only: muted artists are hidden) |
 | `0`, `3`, `10002` | NIP-01/02/65 | Profiles, follows (leaderboards, friend picker, report counting), relay lists |
 | `24133` | NIP-46 | Talking to signer apps |

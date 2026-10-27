@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import * as nip19 from 'nostr-tools/nip19'
-import { BadgeCheck, CircleX, Globe, ImageUp, LogOut, Save, Zap } from 'lucide-react'
+import { BadgeCheck, CircleX, Globe, ImageUp, LogOut, Save, Trash2, TriangleAlert, Zap } from 'lucide-react'
 import { useSession, useSigner } from '../stores/session'
 import { useProfiles } from '../stores/profiles'
 import { useRelays, writeRelays } from '../stores/relays'
 import { LUD16_REGEX, verifyNip05, type ProfileContent } from '../lib/nostr/profile'
 import { uploadToBlossom } from '../lib/blossom'
+import { HOME_RELAY } from '../lib/nostr/pool'
+import { forgetLocalData, requestVanish } from '../lib/nostr/vanish'
+import { disablePush, isPushEnabled, savedPushServer } from '../lib/push'
 import { toast } from '../stores/toast'
 import { Avatar } from '../components/Avatar'
 import { Button, Card, Field, PageTitle, Spinner } from '../components/ui'
@@ -44,6 +47,7 @@ export function ProfilePage() {
         <WalletCard pubkey={pubkey} />
       </div>
       <LogOutCard />
+      <DeleteDataCard />
       <LegalLinks className="mt-5" center />
     </div>
   )
@@ -235,6 +239,70 @@ function LogOutCard() {
         <Button variant="secondary" icon={<LogOut className="size-4" />} onClick={() => setConfirming(true)}>
           Log out
         </Button>
+      )}
+    </Card>
+  )
+}
+
+const HOME_NAME = HOME_RELAY.replace(/^wss?:\/\//, '')
+
+/** Deletes what this key published on Silvamor's relay (a NIP-62 request to vanish), then signs out. */
+function DeleteDataCard() {
+  const { signer, pubkey } = useSigner()
+  const logout = useSession((s) => s.logout)
+  const [confirming, setConfirming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  const remove = async () => {
+    setDeleting(true)
+    try {
+      // The push service keeps this key's push address: drop it while we can still sign for it.
+      if (await isPushEnabled(pubkey).catch(() => false)) await disablePush(pubkey, savedPushServer(pubkey), signer).catch(() => {})
+      await requestVanish(signer)
+      forgetLocalData(pubkey)
+      await logout()
+      toast.success(`Your data was deleted from ${HOME_NAME}.`)
+    } catch (err) {
+      toast.error(err)
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <Card className="mt-5 flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-semibold">Delete my data</p>
+          <p className="text-sm text-white/50">Wipes everything this key published on {HOME_NAME}.</p>
+        </div>
+        {!confirming && (
+          <Button variant="secondary" icon={<Trash2 className="size-4" />} onClick={() => setConfirming(true)}>
+            Delete my data
+          </Button>
+        )}
+      </div>
+      {confirming && (
+        <div role="alert" className="flex flex-col gap-3 rounded-2xl border-2 border-rose-400/40 bg-rose-500/10 p-4 text-sm">
+          <p className="flex items-center gap-2 font-semibold text-rose-200">
+            <TriangleAlert className="size-5 shrink-0" /> This can't be undone
+          </p>
+          <p className="text-white/70">
+            All information stored about you on <b className="text-white">{HOME_NAME}</b> will be wiped: your profile, follow list, relay list,
+            Daily Deal runs, groups, sprites, settings and reports. Leaderboards will no longer show you, and push notifications are turned off.
+          </p>
+          <p className="text-white/70">
+            Copies on other relays and in other Nostr apps aren't affected, and your key keeps working. You'll be signed out, and this device
+            forgets your Silvamor data.
+          </p>
+          <span className="flex flex-wrap gap-2">
+            <Button variant="danger" loading={deleting} icon={<Trash2 className="size-4" />} onClick={remove}>
+              Delete everything
+            </Button>
+            <Button variant="ghost" disabled={deleting} onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+          </span>
+        </div>
       )}
     </Card>
   )

@@ -28,6 +28,7 @@ const KINDS: Record<number, { maxBytes: number; wrong?: (e: Event) => string | n
   0: { maxBytes: 16_384, wrong: (e) => (isJsonObject(e.content) ? null : 'a profile is a JSON object') },
   3: { maxBytes: 262_144 },
   5: { maxBytes: 2_048, wrong: (e) => (e.tags.some((t) => t[0] === 'a' || t[0] === 'e') ? null : 'a deletion names what it deletes') },
+  62: { maxBytes: 2_048 }, // request to vanish (NIP-62): checked against this relay's address below
   1952: { maxBytes: 8_192 },
   1984: {
     maxBytes: 1_024,
@@ -64,6 +65,10 @@ export interface PolicyOptions {
    */
   perIpMinute: number
   perIpDay: number
+  /** This relay's address, which a request to vanish must name (or ALL_RELAYS). */
+  relayUrl: string
+  /** When `pubkey` last asked this relay to forget it (unix seconds), if it has. */
+  vanishedAt?(pubkey: string): number | undefined
   now?: () => number
   log?: (message: string) => void
 }
@@ -83,6 +88,8 @@ function rateLimit(windowMs: number, limit: number, now: () => number) {
     return times.length > limit
   }
 }
+
+const sameRelay = (a: string, b: string) => a.trim().replace(/\/+$/, '').toLowerCase() === b.trim().replace(/\/+$/, '').toLowerCase()
 
 const permit: Decision = { permit: true }
 const deny = (message: string): Decision => ({ permit: false, message })
@@ -129,9 +136,15 @@ export function createPolicy(opts: PolicyOptions) {
       const authorOver = authorMinute(event.pubkey)
       if (ipOverDay) return deny('too many events from your network today, try again tomorrow')
       if (ipOverMinute || authorOver) return deny('too many events, slow down')
+      // A key that asked to vanish stays forgotten: what it published before can't be uploaded again.
+      const vanished = opts.vanishedAt?.(event.pubkey)
+      if (vanished !== undefined && event.created_at <= vanished && event.kind !== 62) return deny('this key asked this relay to delete its events')
       if (new TextEncoder().encode(JSON.stringify(event)).length > rule.maxBytes) return deny(`kind ${event.kind} events are limited to ${rule.maxBytes / 1024} KB here`)
       const wrong = rule.wrong?.(event)
       if (wrong) return deny(wrong)
+      if (event.kind === 62 && !event.tags.some((t) => t[0] === 'relay' && (t[1] === 'ALL_RELAYS' || sameRelay(t[1] ?? '', opts.relayUrl)))) {
+        return deny(`a request to vanish here names ${opts.relayUrl}`)
+      }
       if (event.kind === 1952) return checkRun(event)
       return permit
     },

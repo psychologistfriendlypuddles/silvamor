@@ -303,8 +303,9 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
             service.
           </li>
           <li>
-            Ask us to delete your events and connection records from relay.silvamor.com: <NostrContact>message us on Nostr</NostrContact> from your
-            key. We can’t delete copies on other relays or in other apps.
+            Delete everything you published on relay.silvamor.com with <b>Delete my data</b> on your Profile page. We keep a record of the request
+            (your public key and its time) so the deleted events can’t be uploaded there again. To have your connection records deleted too,{' '}
+            <NostrContact>message us on Nostr</NostrContact> from your key. We can’t delete copies on other relays or in other apps.
           </li>
           <li>Turn push notifications off at any time on the Alerts page.</li>
           <li>

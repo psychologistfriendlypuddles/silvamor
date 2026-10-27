@@ -5,12 +5,12 @@ import { bytesToHex } from 'nostr-tools/utils'
 import type { Event } from 'nostr-tools/pure'
 import { findFirstBlockAfter } from '../../src/lib/bitcoin'
 import { createPolicy, type Policy } from './policy'
-import { parseRetention, prune, type Retention } from './cleanup'
+import { VANISH_KIND, erase, parseRetention, prune, vanishRequests, type Retention } from './cleanup'
 import nauthzProto from '../proto/nauthz.proto?raw'
 
 // Silvamor relay guard: nostr-rs-relay asks it about every event before storing it (gRPC
-// "event admission", see deploy/nostr-rs-relay.toml), and once a day it deletes old events
-// from the relay's database. See guard/README.md.
+// "event admission", see deploy/nostr-rs-relay.toml), once a day it deletes old events from the
+// relay's database, and it deletes everything from a key that asks to vanish. See guard/README.md.
 
 /**
  * What the privacy policy promises (src/pages/Legal.tsx, "Our relay"): runs and tip receipts are
@@ -22,11 +22,13 @@ export const DEFAULT_RETENTION = '1952:30,9735:30'
 export interface GuardConfig {
   /** Where to listen for the relay, e.g. 0.0.0.0:50051. */
   listen: string
+  /** The relay's public address, which requests to vanish must name. */
+  relayUrl: string
   blockSources: string[]
   perMinute: number
   perIpMinute: number
   perIpDay: number
-  /** The relay's SQLite file, for cleanup. Without it there's no cleanup. */
+  /** The relay's SQLite file, for cleanup and requests to vanish. Without it there's neither. */
   relayDb: string | null
   retention: Retention[]
   /** Only count what cleanup would delete. */
@@ -37,6 +39,7 @@ export function configFromEnv(env = process.env): GuardConfig {
   const list = (v: string | undefined, fallback: string[]) => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : fallback)
   return {
     listen: env.LISTEN ?? '0.0.0.0:50051',
+    relayUrl: env.RELAY_URL ?? 'wss://relay.silvamor.com',
     blockSources: list(env.BLOCK_SOURCES, ['https://mempool.space/api/blocks/tip/height', 'https://blockstream.info/api/blocks/tip/height']),
     perMinute: Number(env.PER_MINUTE ?? 30),
     perIpMinute: Number(env.PER_IP_MINUTE ?? 60),
@@ -85,6 +88,15 @@ const HEALTH_PUBKEY = '0'.repeat(64)
 
 export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (m: string) => void } = {}) {
   const log = deps.log ?? ((m: string) => console.log(m))
+  // Keys that asked to vanish, and when: kept in the relay itself, as their requests.
+  const vanished = new Map<string, number>()
+  if (config.relayDb) {
+    try {
+      for (const [pubkey, at] of vanishRequests(config.relayDb)) vanished.set(pubkey, at)
+    } catch (err) {
+      log(`couldn't read requests to vanish: ${err instanceof Error ? err.message : err}`)
+    }
+  }
   const policy =
     deps.policy ??
     createPolicy({
@@ -92,6 +104,8 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
       perMinute: config.perMinute,
       perIpMinute: config.perIpMinute,
       perIpDay: config.perIpDay,
+      relayUrl: config.relayUrl,
+      vanishedAt: (pubkey) => vanished.get(pubkey),
       log,
     })
   const server = new grpc.Server()
@@ -101,6 +115,7 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
       const ip = call.request.ip_addr || undefined
       policy
         .decide(event, { ip })
+        .then((d) => (d.permit && event.kind === VANISH_KIND ? vanish(event) : d))
         .then((d) => {
           if (!d.permit && event.pubkey !== HEALTH_PUBKEY) log(`deny kind ${event.kind} ${event.id} from ${ip ?? 'unknown address'}: ${d.message}`)
           callback(null, { decision: d.permit ? PERMIT : DENY, message: d.message })
@@ -112,6 +127,20 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
         })
     },
   })
+
+  /** Deletes what the request's author published here, before the relay stores the request. */
+  function vanish(event: Event) {
+    if (!config.relayDb) return { permit: false, message: "this relay can't delete events on request; ask its operator" }
+    try {
+      const n = erase(config.relayDb, event.pubkey, event.created_at)
+      vanished.set(event.pubkey, Math.max(event.created_at, vanished.get(event.pubkey) ?? 0))
+      log(`request to vanish: deleted ${n} events`)
+      return { permit: true }
+    } catch (err) {
+      log(`request to vanish failed: ${err instanceof Error ? err.message : err}`)
+      return { permit: false, message: "couldn't delete your events, please try again" }
+    }
+  }
 
   // Cleanup: shortly after starting, then daily.
   const cleanup = () => {

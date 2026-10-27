@@ -111,6 +111,7 @@ export const NIP46_PERMS = [
   'sign_event:30951', // publishing a sprite
   'nip44_encrypt', // invite-link secrets and settings, encrypted to yourself
   'nip44_decrypt',
+  // Not 62 (deleting your data from Silvamor's relay): signer apps should ask about that every time.
 ]
 
 export class Nip46Signer implements AppSigner {
