@@ -98,6 +98,7 @@ export class LocalKeySigner implements AppSigner {
 export const NIP46_PERMS = [
   'get_public_key',
   'sign_event:0', // profile
+  'sign_event:1', // sharing a Daily Deal score as a note
   'sign_event:5', // delete a group
   'sign_event:1952', // Daily Deal runs
   'sign_event:1984', // report a sprite

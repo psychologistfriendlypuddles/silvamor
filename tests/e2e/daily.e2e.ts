@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Relay } from 'nostr-tools/relay'
-import { RELAY, STRATEGIES, expectNoErrors, followsEvent, login, newPlayer, profileEvent, publishRun, runWith, seed } from './helpers'
+import { RELAY, STRATEGIES, expectNoErrors, followsEvent, login, newPlayer, profileEvent, publishRun, runWith, seed, today } from './helpers'
 
 const hand = (page: Page) => page.getByRole('group', { name: 'Your hand' }).getByRole('button')
 const stat = (page: Page, label: string) => page.getByLabel(label, { exact: true })
@@ -62,6 +62,28 @@ test('daily deal: discard, play every hand with your sprite cheering, and keep t
   // Published: Alice tops her own podium.
   await expect(podium(page, 1, 'You', expected)).toBeVisible()
   await expect(page.getByRole('list', { name: 'Podium' }).getByRole('listitem')).toHaveCount(1)
+
+  // Then an offer to share it as a note, which she can edit first.
+  const note = page.getByRole('textbox', { name: 'Your note' })
+  await expect(note).toHaveValue(new RegExp(String.raw`^🃏 Daily Deal ${today()}: ${points(expected)} points\nBest hand: .+\nSame cards for everyone today\. Can you beat me\?\nhttp`))
+  await note.press('ControlOrMeta+End')
+  await note.pressSequentially(' #silvamor')
+  await page.getByRole('button', { name: 'Post to Nostr' }).click()
+  await expect(page.getByText('Shared to 1 relay 🎉')).toBeVisible()
+  await expect(note).toBeHidden()
+  const relay = await Relay.connect(RELAY)
+  const notes = await new Promise<{ content: string }[]>((resolve) => {
+    const found: { content: string }[] = []
+    const sub = relay.subscribe([{ kinds: [1], authors: [alice.pubkey] }], { onevent: (e) => found.push(e), oneose: () => (sub.close(), resolve(found)) })
+  })
+  relay.close()
+  expect(notes.map((n) => n.content)).toEqual([expect.stringMatching(/ #silvamor$/)])
+
+  // It's offered once a day.
+  await page.reload()
+  await login(alice)
+  await expect(podium(page, 1, 'You', expected)).toBeVisible()
+  await expect(note).toBeHidden()
   expectNoErrors(alice)
 })
 
@@ -92,6 +114,7 @@ test('daily deal: runs are published, friends on the podium, and a friend who be
   expect(score).toBe(mine.score)
   await expect(podium(page, 1, 'You', mine.score)).toBeVisible()
   await expect(podium(page, 2, 'Carol', lowest.score)).toBeVisible()
+  await page.getByRole('button', { name: 'Not now' }).click()
 
   // Alice's published run tags Carol, whom she beat.
   const relay = await Relay.connect(RELAY)

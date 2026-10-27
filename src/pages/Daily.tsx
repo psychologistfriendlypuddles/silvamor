@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'motion/react'
-import { Bitcoin, RotateCw } from 'lucide-react'
+import { Bitcoin, RotateCw, Send } from 'lucide-react'
 import { Button, Card, PageTitle, Spinner } from '../components/ui'
 import { Avatar } from '../components/Avatar'
 import { SpriteView } from '../components/Sprite'
@@ -10,7 +10,8 @@ import type { Sprite } from '../lib/sprites'
 import { toast } from '../stores/toast'
 import { useSigner } from '../stores/session'
 import { useGroups } from '../stores/groups'
-import { gameWriteRelays } from '../stores/relays'
+import { gameWriteRelays, useRelays, writeRelays } from '../stores/relays'
+import { Modal } from '../components/Modal'
 import { useLoadGroups } from '../hooks/useLoadGroups'
 import { useDailyRuns } from '../hooks/useDailyRuns'
 import { useDisplayName } from '../hooks/useDisplayName'
@@ -19,6 +20,7 @@ import { buildRun, type DailyRun } from '../lib/nostr/dailyRuns'
 import type { Block } from '../lib/bitcoin'
 import { DailyDealBoard, ScoreLine } from '../games/dailydeal/Board'
 import { dailyDealRules, type DailyDealMove, type DailyDealState } from '../games/dailydeal/rules'
+import { markShareOffered, shareOffered, shareText } from '../games/dailydeal/share'
 import { dayOf, fetchDayBlock, loadMoves, saveMoves, seedFor, untilNextDeal } from '../games/dailydeal/daily'
 
 type Rules = ReturnType<typeof dailyDealRules>
@@ -112,6 +114,8 @@ function Run({ day, block }: { day: string; block: Block }) {
 
   // Publish the run once it's over: only the first one counts, so never twice.
   const [publishing, setPublishing] = useState<'idle' | 'busy' | 'failed'>('idle')
+  // Once this device has published the run, offer to share it.
+  const [sharing, setSharing] = useState(false)
   const started = useRef(false)
   const publish = async () => {
     setPublishing('busy')
@@ -122,6 +126,7 @@ function Run({ day, block }: { day: string; block: Block }) {
       await publishTo(gameWriteRelays(), event)
       add(event)
       setPublishing('idle')
+      if (!shareOffered(pubkey, day)) setSharing(true)
     } catch (err) {
       setPublishing('failed')
       toast.error(err)
@@ -179,6 +184,68 @@ function Run({ day, block }: { day: string; block: Block }) {
         </p>
       )}
       <Leaderboard runs={runs} me={pubkey} follows={follows} groups={Object.values(groups)} />
+      <ShareRun
+        open={sharing}
+        text={() => shareText(day, shown[shown.length - 1].score, shown.flatMap((s) => (s.last && 'play' in s.last ? [s.last.play] : [])), location.origin)}
+        onClose={() => {
+          markShareOffered(pubkey, day)
+          setSharing(false)
+        }}
+      />
+    </div>
+  )
+}
+
+/** Offers to post the result as a public note on the player's own relays, editable first. */
+function ShareRun({ open, text, onClose }: { open: boolean; text(): string; onClose(): void }) {
+  return (
+    <Modal open={open} onClose={onClose}>
+      {open && <ShareForm initial={text()} onClose={onClose} />}
+    </Modal>
+  )
+}
+
+function ShareForm({ initial, onClose }: { initial: string; onClose(): void }) {
+  const { signer } = useSigner()
+  const relays = useRelays((s) => s.relays)
+  const [note, setNote] = useState(initial)
+  const [posting, setPosting] = useState(false)
+
+  const post = async () => {
+    setPosting(true)
+    try {
+      const event = await signer.signEvent({ kind: 1, created_at: Math.floor(Date.now() / 1000), tags: [], content: note.trim() })
+      // Silvamor's relay doesn't keep notes, so this only reaches the player's own relays.
+      const ok = await publishTo(writeRelays(relays), event).catch(() => {
+        throw new Error("None of your relays took the note. Add a relay you write to on the Relays page (Silvamor's relay doesn't keep notes).")
+      })
+      toast.success(`Shared to ${ok.length} relay${ok.length === 1 ? '' : 's'} 🎉`)
+      onClose()
+    } catch (err) {
+      toast.error(err)
+      setPosting(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <h2 className="text-xl font-display">Share your score?</h2>
+      <p className="text-sm text-white/60">Post it as a note on Nostr, so your followers see it in any Nostr app.</p>
+      <textarea
+        aria-label="Your note"
+        rows={5}
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        className="w-full resize-none rounded-2xl border-2 border-white/10 bg-night-950/60 px-4 py-3 text-white outline-none focus:border-grape"
+      />
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" disabled={posting} onClick={onClose}>
+          Not now
+        </Button>
+        <Button loading={posting} disabled={!note.trim()} icon={<Send className="size-4" />} onClick={post}>
+          Post to Nostr
+        </Button>
+      </div>
     </div>
   )
 }
