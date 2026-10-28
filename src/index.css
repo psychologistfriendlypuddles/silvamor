@@ -31,11 +31,17 @@
 
   --animate-float: float 9s ease-in-out infinite;
   --animate-wiggle: wiggle 0.5s ease-in-out;
+  /* The transaction on offer in Beat the Miner. */
+  --animate-glow: glow 1.6s ease-in-out infinite;
 
   @keyframes float {
     0%, 100% { transform: translate(0, 0) scale(1); }
     33% { transform: translate(30px, -40px) scale(1.08); }
     66% { transform: translate(-25px, 20px) scale(0.95); }
+  }
+  @keyframes glow {
+    0%, 100% { box-shadow: 0 0 10px 1px rgb(253 224 71 / 0.35); }
+    50% { box-shadow: 0 0 22px 4px rgb(253 224 71 / 0.7); }
   }
   @keyframes wiggle {
     0%, 100% { transform: rotate(0); }

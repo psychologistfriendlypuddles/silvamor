@@ -1,10 +1,23 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Relay } from 'nostr-tools/relay'
 import { RELAY, expectNoErrors, followsEvent, login, newPlayer, profileEvent, publishMinerRun, seed, today, todaysDeal } from './helpers'
 import { blocked, encodeMoves, minerFees, minerMoves, minerRules, percentOf, type MinerMove } from '../../src/games/miner/rules'
 
 const sats = (n: number) => `${n.toLocaleString('en-US')} sats`
+/** The card on offer is transaction `n` (counting from 1). */
+const onOffer = (page: Page, n: number) => expect(page.getByLabel('On offer')).toContainText(new RegExp(`^#${n}\\D`))
+
+/** Swipes the card on offer: down takes it, up passes on it. */
+async function swipe(page: Page, move: MinerMove) {
+  const box = (await page.getByLabel('On offer').boundingBox())!
+  const x = box.x + box.width / 3
+  const y = box.y + box.height / 2
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x, y + (move === 'take' ? 110 : -110), { steps: 8 })
+  await page.mouse.up()
+}
 
 test('beat the miner: take or pass until the block is found, then the podium and a note to share', async ({ browser }) => {
   const { deal } = await todaysDeal()
@@ -32,7 +45,7 @@ test('beat the miner: take or pass until the block is found, then the podium and
     return move
   }
   for (let i = 0; i < 3; i++) {
-    await expect(page.getByText(`Transaction ${i + 1}.`)).toBeVisible()
+    await onOffer(page, i + 1)
     await page.getByRole('button', { name: decide() === 'take' ? 'Take' : 'Pass' }).click()
   }
   await expect(page.getByLabel('Your fees', { exact: true })).toHaveText(sats(state.fees))
@@ -40,7 +53,21 @@ test('beat the miner: take or pass until the block is found, then the podium and
   // Logging in again finds the run where it was left.
   await page.reload()
   await login(alice)
-  await expect(page.getByText('Transaction 4.')).toBeVisible()
+  await onOffer(page, 4)
+  await expect(page.getByLabel('Your fees', { exact: true })).toHaveText(sats(state.fees))
+
+  // Swiping decides too: down takes, up passes; a short swipe springs back and decides nothing.
+  const box = (await page.getByLabel('On offer').boundingBox())!
+  await page.mouse.move(box.x + 20, box.y + 20)
+  await page.mouse.down()
+  await page.mouse.move(box.x + 20, box.y + 40, { steps: 4 })
+  await page.mouse.up()
+  await onOffer(page, 4)
+  for (let i = 0; i < 2; i++) {
+    const n = state.next
+    await swipe(page, decide())
+    await onOffer(page, n + 2)
+  }
   await expect(page.getByLabel('Your fees', { exact: true })).toHaveText(sats(state.fees))
 
   while (!state.found) {

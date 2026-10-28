@@ -3,7 +3,8 @@ import type { MinerDeal } from './rules'
 // What this browser keeps for Beat the Miner: the day's deal (the same for everyone, so it isn't
 // read from the block sources again), and each account's run in progress so a reload picks it up.
 
-const dealKey = (blockHash: string) => `silvamor:miner-deal:${blockHash}`
+// v2: deals now carry each transaction's facts for the sprite.
+const dealKey = (blockHash: string) => `silvamor:miner-deal:v2:${blockHash}`
 const movesKey = (pubkey: string, seed: string) => `silvamor:miner:${pubkey}:${seed}`
 
 export function loadDeal(blockHash: string): MinerDeal | null {

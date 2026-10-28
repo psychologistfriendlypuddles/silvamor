@@ -2,6 +2,7 @@ import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
 import { IllegalMove, type Rules } from '../types'
 import { generator } from '../dailydeal/rules'
+import type { TxFacts } from './facts'
 
 // Beat the Miner (docs/PROTOCOL.md, "Beat the Miner"): real transactions from the day's seed block
 // arrive one at a time; take each into your block or pass on it for good, until the block is
@@ -29,6 +30,8 @@ export interface BlockTx {
   /** The transactions it spends from. */
   inputs: string[]
   coinbase: boolean
+  /** For show only (what the sprite says about it); not part of the game. */
+  facts?: TxFacts
 }
 
 export interface Tx {
@@ -38,6 +41,7 @@ export interface Tx {
   vsize: number
   /** The stream position of the transaction it spends from, when that one is in the stream too: it has to be in your block first. */
   parent?: number
+  facts?: TxFacts
 }
 
 /** The day's deal: the stream, your block's room, and how many transactions arrive before the block is found. */
@@ -128,7 +132,13 @@ export function dealFrom(seed: string, pages: BlockTx[][]): MinerDeal {
   const position = new Map(order.map((t, i) => [t.txid, i]))
   const stream: Tx[] = order.map((t) => {
     const parent = parentOf.get(t.txid)
-    return { txid: t.txid, fee: t.fee, vsize: Math.ceil(t.weight / 4), ...(parent !== undefined && position.has(parent) ? { parent: position.get(parent) } : {}) }
+    return {
+      txid: t.txid,
+      fee: t.fee,
+      vsize: Math.ceil(t.weight / 4),
+      ...(parent !== undefined && position.has(parent) ? { parent: position.get(parent) } : {}),
+      ...(t.facts && { facts: t.facts }),
+    }
   })
   const total = stream.reduce((sum, t) => sum + t.vsize, 0)
   const earliest = Math.min(EARLIEST_FIND, stream.length)

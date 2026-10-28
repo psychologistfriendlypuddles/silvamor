@@ -35,16 +35,27 @@ const dTag = (e) => e.tags.find((t) => t[0] === 'd')?.[1] ?? ''
 const TX_COUNT = 200
 const txid = (hash, i) => createHash('sha256').update(`${hash}:${i}`).digest('hex')
 
-/** Transaction `i` of block `hash`: fees and sizes that vary, and every eighth spends from the one before. */
+/**
+ * Transaction `i` of block `hash`: fees and sizes that vary, and every eighth spends from the one
+ * before. Some carry an OP_RETURN message, or sweep many coins together, for the sprite to talk about.
+ */
 function transaction(hash, i) {
   const n = parseInt(txid(hash, i).slice(0, 8), 16)
   const vsize = 110 + (n % 600)
   const parent = i % 8 === 7 ? txid(hash, i - 1) : txid(hash, `outside-${i}`)
+  const input = (id) => ({ txid: id, is_coinbase: false, sequence: 0xfffffffd, prevout: { scriptpubkey_type: 'v0_p2wpkh', value: 100_000 } })
+  const outputs = [
+    { scriptpubkey_type: 'v0_p2wpkh', value: 40_000 + (n % 9_000_000) },
+    { scriptpubkey_type: 'v0_p2wpkh', value: 10_000 },
+  ]
+  if (i % 9 === 4) outputs.push({ scriptpubkey_type: 'op_return', value: 0, scriptpubkey_asm: `OP_RETURN OP_PUSHBYTES_21 ${Buffer.from('gm from the dev relay').toString('hex')}` })
+  const extra = i % 13 === 6 ? Array.from({ length: 11 }, (_, k) => input(txid(hash, `swept-${i}-${k}`))) : []
   return {
     txid: txid(hash, i),
     fee: i === 0 ? 0 : vsize * (1 + ((n >>> 10) % 40)),
     weight: vsize * 4,
-    vin: i === 0 ? [{ txid: '0'.repeat(64), is_coinbase: true }] : [{ txid: parent, is_coinbase: false }],
+    vin: i === 0 ? [{ txid: '0'.repeat(64), is_coinbase: true }] : [input(parent), ...extra],
+    vout: outputs,
   }
 }
 

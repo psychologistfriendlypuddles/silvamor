@@ -32,7 +32,7 @@ export function MinerPage() {
       <PageTitle
         emoji="⛏️"
         title="Beat the Miner"
-        subtitle="Real transactions from today's first Bitcoin block arrive one by one. Take them or pass, and fill your block with more fees than the miner before the block is found."
+        subtitle="Real transactions from today's first Bitcoin block arrive one by one. Take them or pass, and fill your block with more fees than the NPC miner. Just remember: the block could be found any moment!"
       />
       <DayBlock day={day} seeds="Today's transactions are picked">
         {/* Keyed by account, so switching logins starts that account's own run. */}

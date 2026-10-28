@@ -1,3 +1,5 @@
+import { factsOf, type RawTx, type TxFacts } from '../games/miner/facts'
+
 // Bitcoin blocks: each day's Daily Deal is seeded by the first block after midnight UTC
 // (docs/PROTOCOL.md, "Daily Deal").
 
@@ -93,6 +95,8 @@ export interface ListedTx {
   /** The transactions it spends from. */
   inputs: string[]
   coinbase: boolean
+  /** What else it does (OP_RETURN data, inscription, consolidation…), for the sprite to mention. */
+  facts: TxFacts
 }
 
 async function fromSources<T>(sources: string[], ask: (base: string) => Promise<T>): Promise<T> {
@@ -129,7 +133,7 @@ export function fetchTxPage(hash: string, start: number, sources = BLOCK_SOURCES
   return fromSources(sources, async (base) => {
     const list = await getJson(`${base}/block/${hash}/txs/${start}`)
     if (!Array.isArray(list)) throw new Error(`${base}: not a transaction list`)
-    return list.map((t: { txid?: unknown; fee?: unknown; weight?: unknown; vin?: { txid?: unknown; is_coinbase?: unknown }[] }) => {
+    return list.map((t: { txid?: unknown; fee?: unknown; weight?: unknown; vin?: ({ txid?: unknown; is_coinbase?: unknown } & RawTx['vin'][number])[]; vout?: RawTx['vout'] }) => {
       if (typeof t.txid !== 'string' || !/^[0-9a-f]{64}$/.test(t.txid) || !Number.isSafeInteger(t.fee) || !Number.isSafeInteger(t.weight) || !Array.isArray(t.vin)) {
         throw new Error(`${base}: bad transaction`)
       }
@@ -139,6 +143,7 @@ export function fetchTxPage(hash: string, start: number, sources = BLOCK_SOURCES
         weight: t.weight as number,
         inputs: t.vin.map((v) => v.txid).filter((id): id is string => typeof id === 'string'),
         coinbase: t.vin.some((v) => v.is_coinbase === true),
+        facts: factsOf({ vin: t.vin, vout: Array.isArray(t.vout) ? t.vout : [] }),
       }
     })
   })
