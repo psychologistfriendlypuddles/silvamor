@@ -4,6 +4,7 @@ import protobuf from 'protobufjs'
 import { bytesToHex } from 'nostr-tools/utils'
 import type { Event } from 'nostr-tools/pure'
 import { findFirstBlockAfter } from '../../src/lib/bitcoin'
+import { dayStart } from '../../src/games/day'
 import { fetchDeal } from '../../src/games/miner/deal'
 import { MINER_RUN_KIND } from '../../src/lib/nostr/minerRuns'
 import { createPolicy, type Policy } from './policy'
@@ -97,6 +98,19 @@ const DENY = 2
 /** The health check's dummy author, left out of the log. */
 const HEALTH_PUBKEY = '0'.repeat(64)
 
+/**
+ * The streaks a key's stored runs claim on a day, for checking a streak's link to the day before; null
+ * (not checked) without the relay's database, or for a day clean-up may already have emptied. So runs
+ * deleted after 30 days don't break a streak, also when the sweep checks old runs again.
+ */
+export function streaksFrom(config: Pick<GuardConfig, 'relayDb' | 'retention'>, now = () => Date.now()) {
+  const keptDays = config.retention.find((r) => r.kind === MINER_RUN_KIND)?.days
+  return (pubkey: string, day: string) => {
+    if (!config.relayDb || (keptDays !== undefined && dayStart(day) < now() / 1000 - keptDays * 86400)) return null
+    return storedStreaks(config.relayDb, pubkey, day)
+  }
+}
+
 export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (m: string) => void } = {}) {
   const log = deps.log ?? ((m: string) => console.log(m))
   // Keys that asked to vanish, and when: kept in the relay itself, as their requests.
@@ -118,7 +132,7 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
       perIpDayBytes: config.perIpDayBytes,
       relayUrl: config.relayUrl,
       vanishedAt: (pubkey) => vanished.get(pubkey),
-      streaksOn: (pubkey, day) => (config.relayDb ? storedStreaks(config.relayDb, pubkey, day) : null),
+      streaksOn: streaksFrom(config),
       log,
     })
   const server = new grpc.Server()

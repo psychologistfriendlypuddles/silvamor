@@ -13,7 +13,7 @@ import type { MinerDeal } from '../../src/games/miner/rules'
 import { dayOf, dayStart, previousDay } from '../../src/games/day'
 import { createPolicy } from '../src/policy'
 import { erase, parseRetention, prune, pruneNonPlayers, storedStreaks, sweepRuns, vanishRequests } from '../src/cleanup'
-import { checkHealth, configFromEnv, startGuard } from '../src/server'
+import { checkHealth, configFromEnv, startGuard, streaksFrom } from '../src/server'
 import nauthzProto from '../proto/nauthz.proto?raw'
 
 const HOME = 'wss://relay.silvamor.com'
@@ -591,7 +591,7 @@ describe('sweep', () => {
     db.close()
     return new Set(ids.map((r) => r.id))
   }
-  /** The guard's policy over the relay database at `path`, where the deal two days ago can't be read. */
+  /** The guard's policy over the relay database at `path`, which keeps runs 30 days; the deal two days ago can't be read. */
   const policyOver = (path: string) =>
     createPolicy({
       relayUrl: HOME,
@@ -600,8 +600,18 @@ describe('sweep', () => {
       perIpMinute: 1000,
       perIpDay: 100_000,
       perIpDayBytes: 1e9,
-      streaksOn: (pk, d) => storedStreaks(path, pk, d),
+      streaksOn: streaksFrom({ relayDb: path, retention: [{ kind: 1953, days: 30 }] }),
     })
+
+  it("keeps a long streak whose oldest runs clean-up has deleted: links are only checked against days kept whole", async () => {
+    const path = relayDb()
+    const daysAgo = (n: number) => dayOf(new Date((t - n * 86400) * 1000))
+    // A player on a 60-day streak: the run 30 days ago, which the oldest kept run extends, is gone.
+    const kept = [29, 28].map((n) => store(path, made(sk, daysAgo(n), dayStart(daysAgo(n)) + 3600, { streak: 60 - n + 1 }), dayStart(daysAgo(n)) + 3605))
+    const swept = await sweepRuns(path, 0, policyOver(path).recheck, { dryRun: false })
+    expect(swept.failed).toEqual(new Map())
+    expect(stored(path)).toEqual(new Set(kept))
+  })
 
   it('deletes stored runs the guard would have refused, as each reached the relay, and the streaks they held up', async () => {
     const path = relayDb()
