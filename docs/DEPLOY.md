@@ -110,11 +110,12 @@ the guard has a Docker health check.
 | Relay guard: rate limits | 60 events a minute, 2,000 a day and 20 MB kept a day per IP address, however many keys it uses (runs and requests to vanish aside from the 20 MB); none per key, since anyone can resend a key's events (the relay reads each player's real address from the proxy's `X-Real-IP` header) |
 | Relay guard: clean-up | Deletes runs and tip receipts after 30 days, as the privacy policy promises, and the profiles, follow lists and relay lists of keys with no runs left (players' apps copy them back at login); keeps sprite reports |
 | Relay guard: requests to vanish | "Delete my data" on the Profile page sends a NIP-62 request naming this relay; the guard deletes everything that key published here and refuses those events if they're uploaded again |
-| Relay guard: sweep | Every minute, checks the runs stored in the last two hours again (all of them after it starts) and deletes the ones it would have refused, such as runs stored while it was down |
+| Relay guard: sweep | Every minute, carries out the requests to vanish stored in the last two hours and checks the runs stored then again (all of them after it starts), deleting the ones it would have refused: what the relay kept while the guard was down |
 
 Check the option names against the sample `config.toml` of the nostr-rs-relay version you run.
 If the guard is down, the relay admits events but still applies its allowlist: nothing is lost, and
-the runs it stored meanwhile are checked by the guard's sweep a minute after it's back.
+the runs and requests to vanish it stored meanwhile are dealt with by the guard's sweep a minute
+after it's back.
 Leagues, sprites and other replaceable events need no clean-up: the relay keeps only the newest of
 each. Runs are about 2 KB, so without clean-up 10,000 players a day add about 7 GB a year. Anything
 else one address sends is capped at 20 MB a day, so keep an eye on disk space all the same: someone

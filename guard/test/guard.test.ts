@@ -398,6 +398,29 @@ describe('requests to vanish (NIP-62)', () => {
     expect(erase(path, me, now + 10)).toBe(0)
   })
 
+  it('carries out a request the relay kept while the guard was away, within a sweep of its return', async () => {
+    const path = storedDb()
+    // Stored without asking the guard (it was restarting, say): nothing of the key's was deleted.
+    const db = new DatabaseSync(path)
+    db.prepare("INSERT INTO event (event_hash, first_seen, created_at, author, kind, content) VALUES (x'0a', ?, ?, ?, 62, '')").run(now, now, hexToBytes(me))
+    db.close()
+    const lines: string[] = []
+    const guard = await startGuard(
+      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9, relayDb: path, retention: [], dryRun: true },
+      { log: (m) => lines.push(m) },
+    )
+    try {
+      await guard.sweep()
+      expect(authors(path).events).toEqual(['other:0', 'me:62'])
+      expect(lines).toContain('request to vanish, kept while the guard was away: deleted 3 events')
+      // Done once is done: the next sweep finds nothing more to delete.
+      await guard.sweep()
+      expect(lines.filter((l) => l.startsWith('request to vanish'))).toHaveLength(1)
+    } finally {
+      await guard.close()
+    }
+  })
+
   describe('through the relay', () => {
     let guard: Awaited<ReturnType<typeof startGuard>>
     let path: string

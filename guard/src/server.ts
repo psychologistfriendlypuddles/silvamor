@@ -167,7 +167,7 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
       // could otherwise pile up requests from throwaway keys for good. (The app takes this as done.)
       if (n === 0 && !vanished.has(event.pubkey)) return { permit: false, message: 'nothing from this key is kept here' }
       vanished.set(event.pubkey, Math.max(event.created_at, vanished.get(event.pubkey) ?? 0))
-      log(`request to vanish: deleted ${n} events`)
+      log(`request to vanish: deleted ${n} event${n === 1 ? '' : 's'}`)
       return { permit: true }
     } catch (err) {
       log(`request to vanish failed: ${err instanceof Error ? err.message : err}`)
@@ -191,8 +191,9 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
   const daily = setInterval(cleanup, 24 * 3600_000)
 
   // Sweep: while the guard can't be reached, the relay stores events unchecked, and boards take its
-  // word for runs. So every minute, runs it stored lately are checked again, as each reached it, and
-  // the ones that fail are deleted: all stored runs the first time, then the last two hours'.
+  // word for runs. So every minute, what it stored lately is gone over again: requests to vanish are
+  // carried out, and runs are checked as each reached it, the ones that fail deleted. All of them the
+  // first time, then the last two hours'.
   let sweptAll = false
   let sweeping = false
   const sweep = async () => {
@@ -200,6 +201,13 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
     sweeping = true
     try {
       const since = sweptAll ? Math.floor(Date.now() / 1000) - SWEEP_WINDOW : 0
+      // A request the relay kept without asking the guard deleted nothing. Carrying out one already
+      // done deletes nothing more: the key's events from after it are left alone.
+      for (const [pubkey, at] of vanishRequests(config.relayDb, since)) {
+        const n = erase(config.relayDb, pubkey, at)
+        vanished.set(pubkey, Math.max(at, vanished.get(pubkey) ?? 0))
+        if (n) log(`request to vanish, kept while the guard was away: deleted ${n} event${n === 1 ? '' : 's'}`)
+      }
       const { checked, failed, later } = await sweepRuns(config.relayDb, since, policy.recheck, { dryRun: config.dryRun })
       const removed = [...failed.values()].reduce((sum, n) => sum + n, 0)
       if (!sweptAll || removed) {

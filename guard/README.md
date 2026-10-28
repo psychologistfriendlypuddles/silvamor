@@ -37,9 +37,11 @@ A small companion to relay.silvamor.com (nostr-rs-relay). It does these jobs:
   `DRY_RUN=true`, because the player asked for it. A key with nothing kept here has nothing to
   delete, so its request is refused rather than kept (the app takes that as done): throwaway keys
   can't pile requests up. Without `RELAY_DB` the guard refuses requests to vanish, so the player is
-  told nothing was deleted.
+  told nothing was deleted. A request that comes while the guard can't be reached is kept by the
+  relay with nothing deleted; the sweep carries it out within a minute of the guard being back.
 - **Sweep.** While the guard can't be reached (restarting, say), the relay stores events unchecked.
-  So every minute the guard checks the runs stored in the last two hours again, each as it reached
+  So every minute the guard carries out the requests to vanish stored in the last two hours (doing
+  one again deletes nothing more), and checks the runs stored then again, each as it reached
   the relay (its `first_seen` time), and deletes the ones it would have refused: made on another
   day, sent long after they were made, not replaying to their fees, or claiming a streak the day
   before doesn't back, which also catches the streaks that rested on a deleted run. The first sweep

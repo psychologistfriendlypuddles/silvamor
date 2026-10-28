@@ -77,11 +77,13 @@ export function storedStreaks(dbPath: string, pubkey: string, day: string): numb
   }
 }
 
-/** Every key that asked to vanish, with the time of its latest request (unix seconds). */
-export function vanishRequests(dbPath: string): Map<string, number> {
+/** Every key that asked to vanish (in requests the relay got since `since`), with the time of its latest request (unix seconds). */
+export function vanishRequests(dbPath: string, since = 0): Map<string, number> {
   const db = open(dbPath)
   try {
-    const rows = db.prepare('SELECT hex(author) AS author, MAX(created_at) AS at FROM event WHERE kind = ? GROUP BY author').all(VANISH_KIND) as { author: string; at: number }[]
+    const rows = db
+      .prepare('SELECT hex(author) AS author, MAX(created_at) AS at FROM event WHERE kind = ? AND first_seen >= ? GROUP BY author')
+      .all(VANISH_KIND, since) as { author: string; at: number }[]
     return new Map(rows.map((r) => [r.author.toLowerCase(), Number(r.at)]))
   } finally {
     db.close()
