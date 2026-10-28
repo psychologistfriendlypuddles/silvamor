@@ -1,4 +1,5 @@
 import type { Event, EventTemplate } from 'nostr-tools/pure'
+import { getSatoshisAmountFromBolt11 } from 'nostr-tools/nip57'
 
 // Tips: zaps (NIP-57) to players and sprite artists, paid from the player's own wallet; and
 // plain Lightning payments (buying Silvamor a coffee).
@@ -101,5 +102,9 @@ async function requestInvoice(lnurl: LnurlPay, sats: number, params: Record<stri
   const res = await fetch(url)
   const data = (await res.json().catch(() => ({}))) as { pr?: string; reason?: string }
   if (!res.ok || !data.pr) throw new Error(data.reason ?? "Their wallet didn't return an invoice.")
+  // Their server writes the invoice and wallets pay whatever it says, so it must ask for exactly this amount (LUD-06).
+  const asked = getSatoshisAmountFromBolt11(data.pr.toLowerCase())
+  if (!asked) throw new Error('Their wallet sent an invoice without an amount, so nothing was paid.')
+  if (asked !== sats) throw new Error(`Their wallet asked for ${formatSats(asked)} instead of ${formatSats(sats)}, so nothing was paid.`)
   return data.pr
 }
