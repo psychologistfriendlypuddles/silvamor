@@ -5,6 +5,7 @@ import { Bell, LogOut, Radio, Spade, Store, UserRound, UsersRound } from 'lucide
 import { useSession } from '../stores/session'
 import { useLoadModeration } from '../stores/moderation'
 import { GitHubLink, LegalLinks } from './LegalLinks'
+import { CoffeeButton } from './Coffee'
 import { useProfile } from '../stores/profiles'
 import { Avatar } from './Avatar'
 import { Logo } from './Brand'
@@ -49,7 +50,10 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
-        <LegalLinks className="mt-auto mb-3 px-3" />
+        <div className="mt-auto mb-3 flex flex-col items-start gap-3">
+          <CoffeeButton />
+          <LegalLinks className="px-3" />
+        </div>
         <div className="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
           {pubkey && <Avatar pubkey={pubkey} />}
           <span className="min-w-0 flex-1 truncate text-sm font-medium">{profile?.display_name || profile?.name || 'Anonymous'}</span>
@@ -64,6 +68,7 @@ export function Layout() {
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-white/10 bg-night-950/70 px-4 py-3 backdrop-blur md:hidden">
           <Logo />
           <span className="flex items-center gap-4">
+            <CoffeeButton compact />
             <GitHubLink className="block size-6 text-white/40 transition-colors hover:text-white" />
             <NavLink to="/profile" aria-label="Your profile">
               {pubkey && <Avatar pubkey={pubkey} className="size-9" />}

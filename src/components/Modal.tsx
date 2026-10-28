@@ -1,9 +1,13 @@
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 
-/** Bottom sheet on phones, centered dialog on bigger screens. */
+/**
+ * Bottom sheet on phones, centered dialog on bigger screens. Rendered into <body>, so a parent
+ * with a backdrop blur (the phone header) can't trap it: that would make it fixed to the parent.
+ */
 export function Modal({ open, onClose, children }: { open: boolean; onClose(): void; children: ReactNode }) {
-  return (
+  return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div
@@ -25,6 +29,7 @@ export function Modal({ open, onClose, children }: { open: boolean; onClose(): v
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   )
 }

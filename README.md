@@ -100,6 +100,7 @@ All optional; set them when running `npm run build` (or `npm run dev`).
 | `VITE_BLOCK_SOURCES` | mempool.space, blockstream.info | URLs returning the Bitcoin tip height as text, with the Esplora block API (`…/blocks/<height>`) beside them; the day's seed block is looked up there |
 | `VITE_PUSH_URL` | none | The push service players get by default |
 | `VITE_BLOSSOM_SERVER` | blossom.primal.net | Where profile pictures and sprite sheets are uploaded |
+| `VITE_COFFEE_ADDRESS` | silvamor@strike.me | Lightning address the "Buy me a coffee" button (sidebar, or the phone header) pays; empty hides the button |
 | `VITE_SPRITE_CURATORS` | none | Comma-separated npubs whose ⭐ picks fill the sprite shop's Featured shelf |
 
 ### Stats

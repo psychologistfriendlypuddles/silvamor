@@ -7,6 +7,7 @@ const testEnv = {
   VITE_BLOCK_SOURCES: 'http://localhost:7777/api/blocks/tip/height',
   VITE_PUSH_URL: 'http://localhost:8787',
   VITE_BLOSSOM_SERVER: 'http://localhost:7777',
+  VITE_COFFEE_ADDRESS: 'coffee@localhost:7777',
 }
 
 export default defineConfig({

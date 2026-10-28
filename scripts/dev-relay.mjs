@@ -10,8 +10,9 @@
 // And a pretend Lightning provider, so every `<name>@localhost:<port>` is a zappable
 // Lightning address (NIP-57) without real money:
 //   GET  /.well-known/lnurlp/<name>      -> LNURL-pay info (allowsNostr)
-//   GET  /lnurlp/callback?amount&nostr   -> a fake invoice for the zap request
+//   GET  /lnurlp/callback?amount&nostr   -> a fake invoice for the zap request (or a plain one, without nostr)
 //   POST /lnurlp/pay?invoice=…           -> "pays" it: publishes the zap receipt here
+//   GET  /lnurlp/payments                -> the plain (non-zap) payments made, for tests
 //
 // And a pretend Blossom server (VITE_BLOSSOM_SERVER=http://localhost:7777) for uploads:
 //   PUT /upload -> stores the body;  GET /<sha256>.<ext> -> serves it
@@ -46,6 +47,8 @@ export function startDevRelay({ port = 7777, blockHeight = 800_000 } = {}) {
   })
   const providerKey = generateSecretKey()
   const invoices = new Map() // bolt11 -> zap request JSON
+  const plain = new Map() // bolt11 -> a plain payment, until paid
+  const payments = [] // plain payments made
   const blobs = new Map() // sha256 -> { type, body }
 
   function blossom(req, res, url) {
@@ -99,24 +102,31 @@ export function startDevRelay({ port = 7777, blockHeight = 800_000 } = {}) {
     if (req.method === 'GET' && name) {
       return json({
         tag: 'payRequest',
-        callback: `http://localhost:${port}/lnurlp/callback`,
+        callback: `http://localhost:${port}/lnurlp/callback?to=${name}`,
         minSendable: 1000,
         maxSendable: 100_000_000_000,
         metadata: JSON.stringify([['text/plain', `Pay ${name}`]]),
         allowsNostr: true,
         nostrPubkey: getPublicKey(providerKey),
+        commentAllowed: 200,
       })
     }
     if (req.method === 'GET' && url.pathname === '/lnurlp/callback') {
       const msat = Number(url.searchParams.get('amount'))
       const nostr = url.searchParams.get('nostr')
-      if (!msat || msat % 1000 || !nostr) return json({ status: 'ERROR', reason: 'amount and nostr required' }, 400)
+      if (!msat || msat % 1000) return json({ status: 'ERROR', reason: 'amount required' }, 400)
       const pr = fakeInvoice(msat)
-      invoices.set(pr, nostr)
+      if (nostr) invoices.set(pr, nostr)
+      else plain.set(pr, { to: url.searchParams.get('to'), sats: msat / 1000, comment: url.searchParams.get('comment') ?? '' })
       return json({ pr, routes: [] })
     }
     if (req.method === 'POST' && url.pathname === '/lnurlp/pay') {
       const pr = url.searchParams.get('invoice') ?? ''
+      if (plain.has(pr)) {
+        payments.push(plain.get(pr))
+        plain.delete(pr)
+        return json({ preimage: '00'.repeat(32) })
+      }
       const description = invoices.get(pr)
       if (!description) return json({ status: 'ERROR', reason: 'unknown invoice' }, 404)
       invoices.delete(pr)
@@ -134,6 +144,7 @@ export function startDevRelay({ port = 7777, blockHeight = 800_000 } = {}) {
       if (store(receipt)) broadcast(receipt)
       return json({ preimage: '00'.repeat(32) })
     }
+    if (req.method === 'GET' && url.pathname === '/lnurlp/payments') return json(payments)
     return false
   }
 
