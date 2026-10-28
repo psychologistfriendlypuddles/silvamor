@@ -5,7 +5,10 @@ import { useSigner } from '../stores/session'
 import { toast } from '../stores/toast'
 import { Button, Card, Field, Toggle } from './ui'
 
-/** "Notify me when Silvamor is closed": push notifications through a push service. */
+/** The day ends at midnight UTC: when that is here, e.g. "1:00 AM". */
+const dayEndsAt = () => new Date(Date.UTC(2000, 0, 1)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+
+/** "Remind me to keep my streak": push notifications through a push service. */
 export function PushCard() {
   const { signer, pubkey } = useSigner()
   const [support] = useState(pushSupport)
@@ -24,7 +27,7 @@ export function PushCard() {
     try {
       if (on) {
         await enablePush(pubkey, server, signer)
-        toast.success("Push notifications on. You'll hear about your games even when Silvamor is closed.")
+        toast.success("Streak reminders on. If your streak is about to end, you'll get a notification.")
       } else {
         await disablePush(pubkey, server, signer)
       }
@@ -52,24 +55,27 @@ export function PushCard() {
       <div className="flex items-start gap-3">
         <BellRing className="mt-0.5 size-5 shrink-0 text-lemon" />
         <div className="min-w-0 flex-1">
-          <p className="font-semibold">When Silvamor is closed</p>
-          <p className="text-sm text-white/55">Get a push notification on this device when a friend beats your Daily Deal score.</p>
+          <p className="font-semibold">Streak reminders</p>
+          <p className="text-sm text-white/55">
+            If you have a streak going and haven't played yet, get a notification on this device a few hours before the day ends (midnight UTC,{' '}
+            {dayEndsAt()} for you).
+          </p>
         </div>
       </div>
 
       {support === 'insecure' ? (
         <p className="rounded-2xl bg-white/5 p-3 text-sm text-white/60">
-          Push notifications need Silvamor opened from an HTTPS address (and, on iPhones, installed to the home screen).
+          Reminders need Silvamor opened from an HTTPS address (and, on iPhones, installed to the home screen).
           This page is on plain http, which is fine for testing, so they'll be available once Silvamor is deployed.
         </p>
       ) : support === 'unsupported' ? (
         <p className="rounded-2xl bg-white/5 p-3 text-sm text-white/60">
-          This browser doesn't support push notifications. On iPhone, add Silvamor to your home screen and open it from there.
+          This browser doesn't support push notifications, which reminders need. On iPhone, add Silvamor to your home screen and open it from there.
         </p>
       ) : (
         <>
           {server ? (
-            <Toggle checked={enabled} onChange={(on) => !busy && toggle(on)} label={busy ? 'Working…' : 'Notify me when Silvamor is closed'} />
+            <Toggle checked={enabled} onChange={(on) => !busy && toggle(on)} label={busy ? 'Working…' : 'Remind me to keep my streak'} />
           ) : (
             <p className="text-sm text-tangerine">No push server is set up yet. Add one below.</p>
           )}

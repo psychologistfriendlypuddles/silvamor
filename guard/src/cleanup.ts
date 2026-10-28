@@ -49,7 +49,7 @@ export function erase(dbPath: string, pubkey: string, before: number): number {
 }
 
 /**
- * The streaks `pubkey`'s Daily Deal runs for `day` claim, as stored here; null if a stored event
+ * The streaks `pubkey`'s Beat the Miner runs for `day` claim, as stored here; null if a stored event
  * can't be read (then nothing is checked). The relay keeps each event's JSON in `content` and
  * indexes single-letter tags, such as the day label `l`.
  */
@@ -57,7 +57,7 @@ export function storedStreaks(dbPath: string, pubkey: string, day: string): numb
   const db = open(dbPath)
   try {
     const rows = db
-      .prepare("SELECT e.content FROM event e JOIN tag t ON t.event_id = e.id WHERE e.author = ? AND e.kind = 1952 AND t.name = 'l' AND t.value = ?")
+      .prepare("SELECT e.content FROM event e JOIN tag t ON t.event_id = e.id WHERE e.author = ? AND e.kind = 1953 AND t.name = 'l' AND t.value = ?")
       .all(hexToBytes(pubkey), day) as { content: string }[]
     const streaks: number[] = []
     for (const { content } of rows) {
@@ -91,13 +91,13 @@ export interface Retention {
   days: number
 }
 
-/** "1952:30,1984:365" → [{ kind: 1952, days: 30 }, { kind: 1984, days: 365 }] */
+/** "1953:30,1984:365" → [{ kind: 1953, days: 30 }, { kind: 1984, days: 365 }] */
 export function parseRetention(value: string | undefined): Retention[] {
   if (!value?.trim()) return []
   return value.split(',').map((part) => {
     const [kind, days] = part.split(':').map((s) => Number(s.trim()))
     if (!Number.isSafeInteger(kind) || kind < 0 || !Number.isSafeInteger(days) || days < 1) {
-      throw new Error(`RETENTION: "${part.trim()}" should be kind:days, e.g. 1952:30`)
+      throw new Error(`RETENTION: "${part.trim()}" should be kind:days, e.g. 1953:30`)
     }
     return { kind, days }
   })

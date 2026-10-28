@@ -3,8 +3,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } fr
 import { Relay } from 'nostr-tools/relay'
 import * as nip19 from 'nostr-tools/nip19'
 import { readFileSync } from 'node:fs'
-import { createHash, randomBytes } from 'node:crypto'
-import { MAX_CARDS, dailyDealRules, scorePlay, type DailyDealMove, type DailyDealState } from '../../src/games/dailydeal/rules'
+import { randomBytes } from 'node:crypto'
 import { dealFrom, minerSeed, pageStarts, type BlockTx } from '../../src/games/miner/rules'
 
 export const RELAY = 'ws://localhost:7777'
@@ -109,7 +108,7 @@ export async function goTo(player: Player, path: string) {
   }, path)
 }
 
-// --- Daily Deal, worked out here the way the protocol says (docs/PROTOCOL.md, "Daily Deal") ---
+// --- The day ---
 
 export const today = () => new Date().toISOString().slice(0, 10)
 
@@ -125,83 +124,38 @@ export async function dayBlock() {
   return blocks.filter((b) => b.timestamp >= midnight).sort((a, b) => a.height - b.height)[0]
 }
 
-/** Today's rules, as the app deals them. */
-export async function todaysRules() {
+/**
+ * Publishes a Beat the Miner run straight to the test relay, as Silvamor's relay would keep it, for
+ * the global boards (which take that relay's scores as they are): by default today's, with fees
+ * that rise over time so the latest player ranks first. Returns its fees.
+ */
+export async function publishRun(sk: Uint8Array, opts: { fees?: number; streak?: number; daysAgo?: number } = {}) {
   const block = await dayBlock()
-  return { block, rules: dailyDealRules(createHash('sha256').update(`silvamor/dailydeal/${today()}/${block.id}`).digest('hex')) }
-}
-
-export type Strategy = (s: DailyDealState) => number[]
-const byRank = (s: DailyDealState) => [...s.hand].sort((a, b) => (b % 13) - (a % 13) || Math.floor(a / 13) - Math.floor(b / 13))
-const subsets = (cards: number[]): number[][] =>
-  cards.flatMap((c, i) => [[c], ...subsets(cards.slice(i + 1)).filter((s) => s.length < MAX_CARDS).map((s) => [c, ...s])])
-/** Ways to play each hand: the board's top five cards (as the UI tests pick them), the lowest card, and the best play. */
-export const STRATEGIES: Record<'topFive' | 'lowest' | 'bottomFive' | 'highest' | 'best', Strategy> = {
-  topFive: (s) => byRank(s).slice(0, 5),
-  lowest: (s) => byRank(s).slice(-1),
-  bottomFive: (s) => byRank(s).slice(-5),
-  highest: (s) => byRank(s).slice(0, 1),
-  best: (s) => subsets(s.hand).sort((a, b) => scorePlay(b, s.perks, s.handsLeft === 1).points - scorePlay(a, s.perks, s.handsLeft === 1).points)[0],
-}
-
-/** A whole run on today's deal, playing every hand with `choose`. */
-export async function runWith(choose: Strategy) {
-  const { block, rules } = await todaysRules()
-  let state = rules.init()
-  const moves: DailyDealMove[] = []
-  while (!rules.outcome(state)) {
-    const move = { play: choose(state) }
-    state = rules.apply(state, move)
-    moves.push(move)
-  }
-  return { block, moves, score: state.score }
-}
-
-/** Publishes a finished run for today, as the app would (kind 1952); returns its score. */
-export async function publishRun(sk: Uint8Array, opts: { run?: Awaited<ReturnType<typeof runWith>>; beaten?: string[]; streak?: number } = {}) {
-  const run = opts.run ?? (await runWith(STRATEGIES.lowest))
+  const daysAgo = opts.daysAgo ?? 0
+  const day = new Date(Date.now() - daysAgo * 86400_000).toISOString().slice(0, 10)
+  const fees = opts.fees ?? Date.now()
   await seed({
     sk,
     template: {
-      kind: 1952,
-      created_at: Math.floor(Date.now() / 1000),
-      content: JSON.stringify({ moves: run.moves }),
-      tags: [
-        ['L', 'silvamor/dailydeal'],
-        ['l', today(), 'silvamor/dailydeal'],
-        ['block', String(run.block.height), run.block.id],
-        ['score', String(run.score)],
-        ...(opts.streak ? [['streak', String(opts.streak)]] : []),
-        ...(opts.beaten ?? []).map((p) => ['p', p]),
-      ],
+      kind: 1953,
+      created_at: Math.floor(Date.now() / 1000) - daysAgo * 86400,
+      content: JSON.stringify({ moves: '' }),
+      tags: [['L', 'silvamor/miner'], ['l', day, 'silvamor/miner'], ['block', String(block.height), block.id], ['score', String(fees)], ['streak', String(opts.streak ?? 1)]],
     },
   })
-  return run.score
-}
-
-/** A run for yesterday claiming `streak` days in a row (the app only reads its streak, so the moves are left out). */
-export async function publishYesterday(sk: Uint8Array, streak: number) {
-  const day = new Date(Date.now() - 86400_000).toISOString().slice(0, 10)
-  await seed({
-    sk,
-    template: {
-      kind: 1952,
-      created_at: Math.floor(Date.now() / 1000) - 86400,
-      content: JSON.stringify({ moves: [] }),
-      tags: [['L', 'silvamor/dailydeal'], ['l', day, 'silvamor/dailydeal'], ['block', '1', 'ab'.repeat(32)], ['score', '0'], ['streak', String(streak)]],
-    },
-  })
+  return fees
 }
 
 /**
- * A player who follows `friends` and has already played today, logged in on the Daily Deal
- * page: their friends who played stand on the podium (with their sprites).
+ * A player who follows `friends` and has played today, logged in on the Social page's Top Scores:
+ * their friends who played stand on the podium (with their sprites), the player first.
  */
 export async function onPodium(browser: Browser, name: string, friends: string[], opts: PlayerOptions = {}) {
   const player = await newPlayer(browser, name, opts)
   await seed(followsEvent(player.sk, friends))
   await publishRun(player.sk)
-  await login(player, '/daily-deal')
+  await login(player, '/social')
+  await player.page.getByRole('tab', { name: 'Top Scores' }).click()
   await expect(player.page.getByRole('list', { name: 'Podium' })).toBeVisible()
   return player
 }

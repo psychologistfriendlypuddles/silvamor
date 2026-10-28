@@ -16,7 +16,8 @@ import nauthzProto from '../proto/nauthz.proto?raw'
 /**
  * What the privacy policy promises (src/pages/Legal.tsx, "Our relay"): game runs and tip receipts are
  * deleted after 30 days; sprite reports are kept so moderation keeps working. Replaceable events
- * need no rule: the relay keeps only the newest.
+ * need no rule: the relay keeps only the newest. 1952 is the retired Daily Deal's runs: no new ones
+ * are taken, and the rule clears the last of them.
  */
 export const DEFAULT_RETENTION = '1952:30,1953:30,9735:30'
 

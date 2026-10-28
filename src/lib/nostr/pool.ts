@@ -9,7 +9,7 @@ const OVERRIDE = import.meta.env.VITE_RELAYS?.split(',').map((r: string) => r.tr
 /**
  * Silvamor's own relay. Every Silvamor event (runs, profiles, follow lists, groups, sprites…) is
  * published here whatever relays a player picks, so it holds everything leaderboards and
- * notifications need (docs/DEPLOY.md, "Relays"). VITE_HOME_RELAY changes it; with VITE_RELAYS
+ * streak reminders need (docs/DEPLOY.md, "Relays"). VITE_HOME_RELAY changes it; with VITE_RELAYS
  * (local testing) it defaults to the first of those.
  */
 export const HOME_RELAY: string = import.meta.env.VITE_HOME_RELAY ?? OVERRIDE?.[0] ?? 'wss://relay.silvamor.com'

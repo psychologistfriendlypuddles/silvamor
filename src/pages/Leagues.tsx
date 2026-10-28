@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
+import { Link, useNavigate, useParams } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { Plus, Trash2, Users, X } from 'lucide-react'
+import { ArrowLeft, Pencil, Plus, Trash2, Trophy, X } from 'lucide-react'
 import { useSigner } from '../stores/session'
 import { useGroups } from '../stores/groups'
 import { toast } from '../stores/toast'
@@ -9,22 +10,26 @@ import { useDisplayName } from '../hooks/useDisplayName'
 import { Avatar } from '../components/Avatar'
 import { FriendPicker } from '../components/FriendPicker'
 import { Modal } from '../components/Modal'
-import { Button, Card, Field, PageTitle, Spinner } from '../components/ui'
+import { Button, Card, Field, PageTitle, Spinner, Switch } from '../components/ui'
+import { RankedList, type Ranked } from '../components/DayGame'
+import { feeTotals, lastDays, useBoardRuns, WINDOWS, type Window } from '../hooks/useBoardRuns'
+import { sats } from '../games/miner/share'
 import { useLoadGroups } from '../hooks/useLoadGroups'
 import { PlayerSheet } from '../components/PlayerSheet'
 
-export function GroupsPage() {
+export function LeaguesPage() {
   useLoadGroups()
   const { groups, loaded } = useGroups()
-  const [editing, setEditing] = useState<Group | 'new' | null>(null)
+  const navigate = useNavigate()
+  const [creating, setCreating] = useState(false)
   const list = Object.values(groups).sort((a, b) => a.title.localeCompare(b.title))
 
   return (
     <div>
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <PageTitle emoji="👥" title="Groups" subtitle="Your crews. Start a game for a group and only its members can join." />
-        <Button icon={<Plus className="size-5" />} onClick={() => setEditing('new')}>
-          New group
+        <PageTitle emoji="🏆" title="Leagues" subtitle="Your own leaderboards. Pick the players in a league, then follow its standings day by day." />
+        <Button icon={<Plus className="size-5" />} onClick={() => setCreating(true)}>
+          New league
         </Button>
       </div>
 
@@ -35,12 +40,12 @@ export function GroupsPage() {
       ) : list.length === 0 ? (
         <Card className="flex flex-col items-center gap-3 py-12 text-center">
           <motion.div animate={{ y: [0, -6, 0] }} transition={{ duration: 2, repeat: Infinity }}>
-            <Users className="size-12 text-white/30" />
+            <Trophy className="size-12 text-white/30" />
           </motion.div>
-          <p className="font-medium text-white/70">No groups yet</p>
-          <p className="max-w-xs text-sm text-white/45">Gather the friends you always play with, then start games just for them.</p>
-          <Button variant="secondary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')} className="mt-2">
-            Create a group
+          <p className="font-medium text-white/70">No leagues yet</p>
+          <p className="max-w-xs text-sm text-white/45">Pick the friends you want to compete with. Each league keeps its own standings.</p>
+          <Button variant="secondary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)} className="mt-2">
+            Start a league
           </Button>
         </Card>
       ) : (
@@ -54,14 +59,14 @@ export function GroupsPage() {
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
                 whileHover={{ y: -3 }}
-                onClick={() => setEditing(g)}
+                onClick={() => navigate(`/leagues/${g.id}`)}
                 className="text-left"
               >
                 <Card className="flex items-center gap-4 p-4 transition-colors hover:border-white/25">
                   <div className="min-w-0 flex-1">
                     <p className="font-display truncate text-lg tracking-wide">{g.title}</p>
                     <p className="mt-0.5 text-xs text-white/50">
-                      {g.members.length} member{g.members.length === 1 ? '' : 's'}
+                      {g.members.length} player{g.members.length === 1 ? '' : 's'}
                     </p>
                   </div>
                   <div className="flex -space-x-2.5">
@@ -76,14 +81,91 @@ export function GroupsPage() {
         </div>
       )}
 
-      <Modal open={!!editing} onClose={() => setEditing(null)}>
-        {editing && <GroupEditor group={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      <Modal open={creating} onClose={() => setCreating(false)}>
+        {creating && <LeagueEditor group={null} onClose={() => setCreating(false)} />}
       </Modal>
     </div>
   )
 }
 
-function GroupEditor({ group, onClose }: { group: Group | null; onClose(): void }) {
+/** One league: its players and standings. */
+export function LeaguePage() {
+  const { id = '' } = useParams()
+  const navigate = useNavigate()
+  useLoadGroups()
+  const { groups, loaded } = useGroups()
+  const [editing, setEditing] = useState(false)
+  const league = groups[id]
+
+  const back = (
+    <Link to="/leagues" className="mb-4 inline-flex items-center gap-1.5 text-sm text-white/55 hover:text-white">
+      <ArrowLeft className="size-4" /> Leagues
+    </Link>
+  )
+  if (!loaded) {
+    return (
+      <div className="flex justify-center py-14">
+        <Spinner />
+      </div>
+    )
+  }
+  if (!league) {
+    return (
+      <div>
+        {back}
+        <Card className="py-12 text-center text-sm text-white/50">This league doesn't exist, or it was deleted.</Card>
+      </div>
+    )
+  }
+  return (
+    <div>
+      {back}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <PageTitle emoji="🏆" title={league.title} subtitle={`${league.members.length} player${league.members.length === 1 ? '' : 's'}, plus you`} />
+        <Button variant="secondary" icon={<Pencil className="size-4" />} onClick={() => setEditing(true)}>
+          Edit league
+        </Button>
+      </div>
+      <Standings league={league} />
+      <Modal open={editing} onClose={() => setEditing(false)}>
+        {editing && <LeagueEditor group={league} onClose={() => setEditing(false)} onDeleted={() => navigate('/leagues')} />}
+      </Modal>
+    </div>
+  )
+}
+
+/** The league's players, you included, ranked by fees over a time window (as Top Scores is). */
+function Standings({ league }: { league: Group }) {
+  const { pubkey } = useSigner()
+  const [span, setSpan] = useState<Window>('1')
+  const days = useMemo(() => lastDays(Number(span)), [span])
+  const players = useMemo(() => [...new Set([pubkey, ...league.members])], [pubkey, league.members])
+  const runs = useBoardRuns(days, players)
+  const rows = useMemo((): Ranked[] => feeTotals(runs ?? []).map((t) => ({ author: t.author, value: sats(t.fees), streak: t.streak })), [runs])
+  // Today's scores are a target, so they stay hidden until you've played (as everywhere).
+  const playedToday = (runs ?? []).some((r) => r.author === pubkey && r.day === days[0])
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <h2 className="text-sm font-semibold tracking-wider text-white/50 uppercase">Standings</h2>
+      <Switch<Window> options={[...WINDOWS]} value={span} onChange={setSpan} label="Time window" />
+      <p className="text-xs text-white/45">
+        {span === '1' ? 'The most fees in one block today.' : `Fees from each player's blocks over the last ${span} days, added up.`}
+      </p>
+      {runs === null ? (
+        <div className="flex justify-center py-8">
+          <Spinner />
+        </div>
+      ) : span === '1' && !playedToday ? (
+        <p className="py-6 text-center text-sm text-white/50">Mine today's block to see today's standings.</p>
+      ) : (
+        <RankedList rows={rows} me={pubkey} empty="Nobody in this league has played yet." />
+      )}
+    </Card>
+  )
+}
+
+function LeagueEditor({ group, onClose, onDeleted }: { group: Group | null; onClose(): void; onDeleted?(): void }) {
   const { signer, pubkey } = useSigner()
   const [title, setTitle] = useState(group?.title ?? '')
   const [members, setMembers] = useState<string[]>(group?.members ?? [])
@@ -92,11 +174,11 @@ function GroupEditor({ group, onClose }: { group: Group | null; onClose(): void 
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!title.trim()) return toast.error('Give your group a name.')
+    if (!title.trim()) return toast.error('Give your league a name.')
     setBusy('save')
     try {
       await useGroups.getState().save(signer, { id: group?.id, title: title.trim(), members })
-      toast.success(group ? 'Group saved' : `"${title.trim()}" created 🎉`)
+      toast.success(group ? 'League saved' : `"${title.trim()}" created 🎉`)
       onClose()
     } catch (err) {
       toast.error(err)
@@ -110,8 +192,9 @@ function GroupEditor({ group, onClose }: { group: Group | null; onClose(): void 
     setBusy('delete')
     try {
       await useGroups.getState().remove(signer, pubkey, group.id)
-      toast.success('Group deleted')
+      toast.success('League deleted')
       onClose()
+      onDeleted?.()
     } catch (err) {
       toast.error(err)
     } finally {
@@ -122,23 +205,23 @@ function GroupEditor({ group, onClose }: { group: Group | null; onClose(): void 
   return (
     <form onSubmit={submit} className="flex flex-col gap-5">
       <div className="flex items-center justify-between">
-        <h2 className="font-display text-2xl tracking-wide">{group ? 'Edit group' : 'New group ✨'}</h2>
+        <h2 className="font-display text-2xl tracking-wide">{group ? 'Edit league' : 'New league ✨'}</h2>
         <button type="button" onClick={onClose} className="rounded-xl p-2 text-white/50 hover:bg-white/10 hover:text-white">
           <X className="size-5" />
         </button>
       </div>
 
-      <Field label="Group name" placeholder="Friday night crew" maxLength={60} value={title} onChange={(e) => setTitle(e.target.value)} />
+      <Field label="League name" placeholder="Friday night miners" maxLength={60} value={title} onChange={(e) => setTitle(e.target.value)} />
 
       <div>
-        <span className="mb-1.5 block text-sm font-medium text-white/70">Members ({members.length})</span>
+        <span className="mb-1.5 block text-sm font-medium text-white/70">Players ({members.length})</span>
         <div className="flex min-h-10 flex-wrap gap-2">
           <AnimatePresence initial={false}>
             {members.map((pk) => (
               <MemberChip key={pk} pubkey={pk} onRemove={() => setMembers((m) => m.filter((p) => p !== pk))} />
             ))}
           </AnimatePresence>
-          {members.length === 0 && <p className="text-sm text-white/40">Add friends below.</p>}
+          {members.length === 0 && <p className="text-sm text-white/40">Add players below.</p>}
         </div>
       </div>
 
@@ -160,7 +243,7 @@ function GroupEditor({ group, onClose }: { group: Group | null; onClose(): void 
           <span />
         )}
         <Button type="submit" loading={busy === 'save'}>
-          {group ? 'Save' : 'Create group'}
+          {group ? 'Save' : 'Create league'}
         </Button>
       </div>
     </form>

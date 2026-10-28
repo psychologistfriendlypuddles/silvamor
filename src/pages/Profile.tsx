@@ -288,7 +288,7 @@ function DeleteDataCard() {
           </p>
           <p className="text-white/70">
             All information stored about you on <b className="text-white">{HOME_NAME}</b> will be wiped: your profile, follow list, relay list,
-            Daily Deal runs, groups, sprites, settings and reports. Leaderboards will no longer show you, and push notifications are turned off.
+            game runs, leagues, sprites, settings and reports. Leaderboards will no longer show you, and streak reminders are turned off.
           </p>
           <p className="text-white/70">
             Copies on other relays and in other Nostr apps aren't affected, and your key keeps working. You'll be signed out, and this device

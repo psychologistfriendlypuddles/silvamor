@@ -53,14 +53,17 @@ function fakeSignerApp(delayMs: number, opts: { ignoreSigning?: boolean } = {}) 
   }
 }
 
-/** Plays today's Daily Deal to the end, a card at a time; the app then publishes the run. */
+/** Plays today's block to the end, taking what fits; the app then publishes the run. */
 async function playThrough(page: Page) {
-  await page.getByRole('link', { name: 'Daily Deal' }).first().click()
-  const hands = page.getByLabel('Hands', { exact: true })
-  await expect(hands).toBeVisible({ timeout: 15_000 })
-  for (let left = Number(await hands.textContent()); left > 0; left--) {
-    await page.getByRole('group', { name: 'Your hand' }).getByRole('button').first().click()
-    await page.getByRole('button', { name: 'Play hand' }).click()
+  const found = page.getByText(/^Block found after \d+ transactions$/)
+  await expect(page.getByLabel('On offer')).toBeVisible({ timeout: 15_000 })
+  while (!(await found.isVisible())) {
+    const take = page.getByRole('button', { name: 'Take', exact: true })
+    if (!(await take.isVisible())) {
+      await page.waitForTimeout(50) // the next card is sliding in
+      continue
+    }
+    await ((await take.isEnabled()) ? take : page.getByRole('button', { name: 'Pass', exact: true })).click()
   }
 }
 
@@ -72,17 +75,17 @@ test('logging in with a signer app, and a hint while it waits for approval', asy
   await page.getByRole('button', { name: /Signer app/ }).click()
   const uri = await page.locator('a[href^="nostrconnect:"]').getAttribute('href')
   // The app asks for permission per event kind, so the signer can offer "always allow".
-  expect(new URL(uri!).searchParams.get('perms')).toContain('sign_event:1952')
+  expect(new URL(uri!).searchParams.get('perms')).toContain('sign_event:1953')
   await signer.approve(uri!)
   await expect(page.getByRole('link', { name: 'silvamor home' }).first()).toBeVisible({ timeout: 15_000 })
 
   // Publishing a finished run needs a signature: while the signer app hasn't answered, say so.
   await playThrough(page)
   await expect(page.getByText('Waiting for your signer app…')).toBeVisible()
-  await expect(page.getByLabel('Final score')).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByRole('list', { name: 'Podium' })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByLabel('Your fees')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('textbox', { name: 'Your note' })).toBeVisible({ timeout: 15_000 }) // offered once it's published
   await expect(page.getByText('Waiting for your signer app…')).toBeHidden()
-  expect(signer.requests).toContain('sign_event:1952')
+  expect(signer.requests).toContain('sign_event:1953')
   signer.close()
 })
 

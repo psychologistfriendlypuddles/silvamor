@@ -3,13 +3,12 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import webpush from 'web-push'
 import { unpackEventFromToken, validateEvent } from 'nostr-tools/nip98'
-import { findFirstBlockAfter } from '../../src/lib/bitcoin'
 import { Store, type PushSubscriptionData } from './store'
 import { createWatchtower, type PushPayload, type SendResult, type Watchtower } from './watchtower'
 
 // Silvamor push service: a small, self-hostable watchtower. Players register a Web Push
-// subscription by signing the request with their Nostr key (NIP-98); the service watches
-// the relays for friends' Daily Deal runs that beat them and pushes what the app would show.
+// subscription by signing the request with their Nostr key (NIP-98); a few hours before the day
+// ends, the service reminds those whose streak would end today.
 
 export interface ServiceConfig {
   port: number
@@ -18,7 +17,8 @@ export interface ServiceConfig {
   appUrl: string
   allowedOrigins: string[]
   relays: string[]
-  blockSources: string[]
+  /** How long before the day ends (midnight UTC) to remind, in hours. */
+  remindHoursBefore: number
   dataDir: string
   vapidSubject: string
 }
@@ -32,8 +32,8 @@ export function configFromEnv(env = process.env): ServiceConfig {
     publicUrl: (env.PUBLIC_URL ?? `http://localhost:${port}`).replace(/\/$/, ''),
     appUrl,
     allowedOrigins: list(env.ALLOWED_ORIGINS, [appUrl]),
-    relays: list(env.RELAYS, ['wss://relay.silvamor.com', 'wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net']),
-    blockSources: list(env.BLOCK_SOURCES, ['https://mempool.space/api/blocks/tip/height', 'https://blockstream.info/api/blocks/tip/height']),
+    relays: list(env.RELAYS, ['wss://relay.silvamor.com']),
+    remindHoursBefore: Number(env.REMIND_HOURS_BEFORE ?? 4),
     dataDir: env.DATA_DIR ?? './push-data',
     vapidSubject: env.VAPID_SUBJECT ?? 'mailto:admin@example.com',
   }
@@ -94,8 +94,8 @@ export function startService(config: ServiceConfig, deps: { store?: Store; watch
       relays: config.relays,
       store,
       send: webPushSender(vapid!, config.vapidSubject),
-      findBlock: (time) => findFirstBlockAfter(time, config.blockSources),
       appUrl: config.appUrl,
+      remindHoursBefore: config.remindHoursBefore,
       log: (m) => console.log(m),
     })
   const vapidPublicKey = deps.vapidPublicKey ?? vapid!.publicKey
@@ -130,12 +130,10 @@ export function startService(config: ServiceConfig, deps: { store?: Store; watch
         if (req.method === 'POST') {
           if (!isSubscription(body.subscription)) return send(res, 400, { error: 'Missing or invalid push subscription.' })
           store.addSubscription(pubkey, body.subscription)
-          await watchtower.subscribed(pubkey)
           return send(res, 201, { ok: true })
         }
         if (typeof body.endpoint !== 'string') return send(res, 400, { error: 'Missing endpoint.' })
         const removed = store.removeSubscription(body.endpoint, pubkey)
-        watchtower.unsubscribed()
         return send(res, removed ? 200 : 404, { ok: removed })
       }
       return send(res, 404, { error: 'Not found' })
@@ -164,5 +162,5 @@ export function startService(config: ServiceConfig, deps: { store?: Store; watch
 // Run directly (see push/README.md).
 if (import.meta.url === `file://${process.argv[1]}`) {
   const config = configFromEnv()
-  startService(config).then(() => console.log(`Silvamor push service on :${config.port}, watching ${config.relays.join(', ')}`))
+  startService(config).then(() => console.log(`Silvamor push service on :${config.port}, reading runs from ${config.relays.join(', ')}`))
 }

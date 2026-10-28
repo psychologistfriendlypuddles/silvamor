@@ -1,7 +1,7 @@
 import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
 import { IllegalMove, type Rules } from '../types'
-import { generator } from '../dailydeal/rules'
+import { generator } from '../random'
 import type { TxFacts } from './facts'
 
 // Beat the Miner (docs/PROTOCOL.md, "Beat the Miner"): real transactions from the day's seed block

@@ -4,7 +4,7 @@ import type { Event } from 'nostr-tools/pure'
 import { ExternalLink, RotateCw } from 'lucide-react'
 import { Button, Card, PageTitle, Spinner } from '../components/ui'
 import { SpriteView } from '../components/Sprite'
-import { DayBlock, Leaderboard, NextDay, SharePrompt } from '../components/DayGame'
+import { DayBlock, NextDay, SharePrompt } from '../components/DayGame'
 import { usePlayerSprite } from '../stores/sprites'
 import type { Sprite } from '../lib/sprites'
 import { toast } from '../stores/toast'
@@ -14,15 +14,15 @@ import { gameWriteRelays } from '../stores/relays'
 import { useLoadGroups } from '../hooks/useLoadGroups'
 import { useGameRuns } from '../hooks/useGameRuns'
 import { publishTo } from '../lib/nostr/pool'
-import { MINER_RUN_KIND, buildMinerRun, countedMinerRuns, parseMinerRun, type MinerRun } from '../lib/nostr/minerRuns'
+import { MINER_RUN_KIND, buildMinerRun, confirmedStreak, countedMinerRuns, nextStreak, parseMinerRun, type MinerRun } from '../lib/nostr/minerRuns'
+import { useStreaks } from '../hooks/useStreaks'
 import type { Block } from '../lib/bitcoin'
 import { markShareOffered, shareOffered } from '../lib/shareOffer'
-import { dayOf } from '../games/dailydeal/daily'
+import { dayOf } from '../games/day'
 import { MinerBoard } from '../games/miner/Board'
-import { fetchDeal } from '../games/miner/deal'
-import { loadDeal, loadMoves, saveDeal, saveMoves } from '../games/miner/local'
+import { dealFor, loadDeal, loadMoves, saveMoves } from '../games/miner/local'
 import { bestFees, decodeMoves, encodeMoves, minerFees, minerRules, minerSeed, percentOf, type MinerDeal, type MinerMove, type MinerState } from '../games/miner/rules'
-import { sats, shareText } from '../games/miner/share'
+import { GAME_TAG, sats, shareText } from '../games/miner/share'
 
 export function MinerPage() {
   const { pubkey } = useSigner()
@@ -51,12 +51,8 @@ function DealLoader({ day, block }: { day: string; block: Block }) {
   useEffect(() => {
     if (deal) return
     let cancelled = false
-    fetchDeal(day, block).then(
-      (d) => {
-        if (cancelled) return
-        saveDeal(block.hash, d)
-        setDeal(d)
-      },
+    dealFor(day, block).then(
+      (d) => !cancelled && setDeal(d),
       () => !cancelled && setFailed(true),
     )
     return () => {
@@ -126,6 +122,8 @@ function Run({ day, block, deal }: { day: string; block: Block; deal: MinerDeal 
   )
   const { runs, loaded, add } = useGameRuns(MINER_RUN_KIND, day, everyone, count)
   const mine: MinerRun | undefined = runs.get(pubkey)
+  const yesterday = useStreaks(day, everyone)
+  const streakOf = (run: MinerRun) => confirmedStreak(run, yesterday.streaks.get(run.author))
   const sprite = usePlayerSprite(pubkey)
 
   const seed = useMemo(() => minerSeed(day, block.hash), [day, block])
@@ -140,7 +138,8 @@ function Run({ day, block, deal }: { day: string; block: Block; deal: MinerDeal 
   const publish = async () => {
     setPublishing('busy')
     try {
-      const event = await signer.signEvent(buildMinerRun({ day, block, moves, score: state.fees }))
+      const streak = nextStreak(yesterday.streaks.get(pubkey))
+      const event = await signer.signEvent(buildMinerRun({ day, block, moves, score: state.fees, streak }))
       await publishTo(gameWriteRelays(), event)
       add(event)
       setPublishing('idle')
@@ -151,11 +150,11 @@ function Run({ day, block, deal }: { day: string; block: Block; deal: MinerDeal 
     }
   }
   useEffect(() => {
-    if (!finished || !followsLoaded || !loaded || mine || started.current) return
+    if (!finished || !followsLoaded || !loaded || !yesterday.loaded || mine || started.current) return
     started.current = true
     publish()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finished, followsLoaded, loaded, mine])
+  }, [finished, followsLoaded, loaded, yesterday.loaded, mine])
 
   const onMove = (move: MinerMove) => {
     try {
@@ -179,16 +178,17 @@ function Run({ day, block, deal }: { day: string; block: Block; deal: MinerDeal 
         <MinerBoard deal={deal} state={state} sprite={sprite} onMove={onMove} />
         {others > 0 && (
           <p className="text-center text-sm text-white/50">
-            {others === 1 ? '1 friend has' : `${others} friends have`} played today. Finish your block to see the scores.
+            {others === 1 ? '1 friend has' : `${others} friends have`} played today. Finish your block to see today's scores.
           </p>
         )}
       </div>
     )
   }
   const ofMiner = percentOf(shown.fees, minerFees(deal))
+  const myStreak = mine ? streakOf(mine) : nextStreak(yesterday.streaks.get(pubkey))
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-4">
-      <Summary deal={deal} state={shown} block={block} sprite={sprite} />
+      <Summary deal={deal} state={shown} block={block} sprite={sprite} streak={myStreak} />
       {!mine && (
         <p className="flex items-center justify-center gap-2 text-sm text-white/60">
           {publishing === 'failed' ? (
@@ -202,10 +202,10 @@ function Run({ day, block, deal }: { day: string; block: Block; deal: MinerDeal 
           )}
         </p>
       )}
-      <Leaderboard runs={runs} me={pubkey} follows={follows} groups={Object.values(groups)} format={sats} />
       <SharePrompt
         open={sharing}
-        text={() => shareText(day, block.height, shown.fees, ofMiner, location.origin)}
+        hashtag={GAME_TAG}
+        text={() => shareText(day, block.height, shown.fees, ofMiner, myStreak, location.origin)}
         onClose={() => {
           markShareOffered('miner', pubkey, day)
           setSharing(false)
@@ -215,7 +215,7 @@ function Run({ day, block, deal }: { day: string; block: Block; deal: MinerDeal 
   )
 }
 
-function Summary({ deal, state, block, sprite }: { deal: MinerDeal; state: MinerState; block: Block; sprite: Sprite }) {
+function Summary({ deal, state, block, sprite, streak }: { deal: MinerDeal; state: MinerState; block: Block; sprite: Sprite; streak: number }) {
   const miner = minerFees(deal)
   const best = bestFees(deal)
   const won = state.fees > miner
@@ -232,6 +232,7 @@ function Summary({ deal, state, block, sprite }: { deal: MinerDeal; state: Miner
       >
         {sats(state.fees)}
       </motion.p>
+      {streak > 1 && <p className="-mt-2 font-semibold text-tangerine">🔥 {streak}-day streak</p>}
       <p className={`font-semibold ${won ? 'text-mint' : 'text-tangerine'}`}>
         {won ? 'You beat the miner!' : state.fees === miner ? 'A tie with the miner.' : 'The miner wins today.'} {percentOf(state.fees, miner)}% of the miner's {sats(miner)}
       </p>

@@ -8,11 +8,9 @@ import * as protoLoader from '@grpc/proto-loader'
 import protobuf from 'protobufjs'
 import { hexToBytes } from 'nostr-tools/utils'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventTemplate } from 'nostr-tools/pure'
-import { buildRun, previousDay } from '../../src/lib/nostr/dailyRuns'
 import { buildMinerRun } from '../../src/lib/nostr/minerRuns'
 import type { MinerDeal } from '../../src/games/miner/rules'
-import { dailyDealRules, type DailyDealMove } from '../../src/games/dailydeal/rules'
-import { dayOf, dayStart, seedFor } from '../../src/games/dailydeal/daily'
+import { dayOf, dayStart, previousDay } from '../../src/games/day'
 import { createPolicy } from '../src/policy'
 import { erase, parseRetention, prune, storedStreaks, vanishRequests } from '../src/cleanup'
 import { checkHealth, configFromEnv, startGuard } from '../src/server'
@@ -33,21 +31,24 @@ const RELAY_SCHEMA = `
     kind INTEGER NOT NULL, FOREIGN KEY(event_id) REFERENCES event(id) ON UPDATE CASCADE ON DELETE CASCADE);
 `
 
-/** A finished run on today's deal, playing the first card each hand. */
+/** Today's deal: three transactions, the block found after all three, room for 300 vB. */
+const deal: MinerDeal = {
+  stream: [
+    { txid: 'a'.repeat(64), fee: 300, vsize: 100 },
+    { txid: 'b'.repeat(64), fee: 100, vsize: 200 },
+    { txid: 'c'.repeat(64), fee: 900, vsize: 100, parent: 1 },
+  ],
+  capacity: 300,
+  foundAt: 3,
+}
+
+/** A finished run on today's deal: the cheap parent and its rich child, 1,000 sats. */
 function run(scoreOffset = 0, streak = 1) {
-  const rules = dailyDealRules(seedFor(day, block.hash))
-  let state = rules.init()
-  const moves: DailyDealMove[] = []
-  while (!rules.outcome(state)) {
-    const move = { play: [state.hand[0]] }
-    state = rules.apply(state, move)
-    moves.push(move)
-  }
-  return finalizeEvent(buildRun({ day, block, moves, score: state.score + scoreOffset, streak, beaten: [] }), sk)
+  return finalizeEvent(buildMinerRun({ day, block, moves: ['pass', 'take', 'take'], score: 1000 + scoreOffset, streak }), sk)
 }
 
 describe('admission policy', () => {
-  const policy = () => createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
+  const policy = () => createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
 
   const sprite = 'a'.repeat(64)
   const report = (note: string, extra: string[][] = []) =>
@@ -109,11 +110,12 @@ describe('admission policy', () => {
     expect((await p.decide(sign({ kind: 30078, tags: [['d', 'someapp/settings']] }))).permit).toBe(false)
   })
 
-  it('admits runs that replay to their score, and no others', async () => {
+  it("admits runs that replay on the day's deal to their fees, and no others; Daily Deal runs no longer", async () => {
     const p = policy()
     expect((await p.decide(run())).permit).toBe(true)
-    expect(await p.decide(run(1))).toEqual({ permit: false, message: "the run doesn't replay to its score" })
-    expect((await p.decide(sign({ kind: 1952, content: 'junk' }))).permit).toBe(false)
+    expect(await p.decide(run(1))).toEqual({ permit: false, message: "the run doesn't replay to its fees" })
+    expect((await p.decide(sign({ kind: 1953, content: 'junk' }))).permit).toBe(false)
+    expect(await p.decide(sign({ kind: 1952, content: '{}' }))).toEqual({ permit: false, message: "Silvamor's relay doesn't keep kind 1952" })
   })
 
   it("refuses runs for a day whose block isn't mined, and admits them when no block source answers", async () => {
@@ -407,17 +409,17 @@ describe('streaks', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'silvamor-guard-')), 'nostr.db')
     const db = new DatabaseSync(path)
     db.exec(RELAY_SCHEMA)
-    const add = db.prepare('INSERT INTO event (event_hash, first_seen, created_at, author, kind, content) VALUES (?, 0, 0, ?, 1952, ?)')
-    const label = db.prepare("INSERT INTO tag (event_id, name, value, created_at, kind) VALUES (?, 'l', ?, 0, 1952)")
+    const add = db.prepare('INSERT INTO event (event_hash, first_seen, created_at, author, kind, content) VALUES (?, 0, 0, ?, 1953, ?)')
+    const label = db.prepare("INSERT INTO tag (event_id, name, value, created_at, kind) VALUES (?, 'l', ?, 0, 1953)")
     const stored: [string, string, string[][]][] = [
-      [me, yesterday, [['l', yesterday, 'silvamor/dailydeal'], ['streak', '3']]],
-      [me, yesterday, [['l', yesterday, 'silvamor/dailydeal']]],
-      [me, day, [['l', day, 'silvamor/dailydeal'], ['streak', '4']]],
-      ['b'.repeat(64), yesterday, [['l', yesterday, 'silvamor/dailydeal'], ['streak', '7']]],
+      [me, yesterday, [['l', yesterday, 'silvamor/miner'], ['streak', '3']]],
+      [me, yesterday, [['l', yesterday, 'silvamor/miner']]],
+      [me, day, [['l', day, 'silvamor/miner'], ['streak', '4']]],
+      ['b'.repeat(64), yesterday, [['l', yesterday, 'silvamor/miner'], ['streak', '7']]],
     ]
     stored.forEach(([author, d, tags], i) => {
       // nostr-rs-relay keeps the whole event as JSON in `content`.
-      const id = Number(add.run(new Uint8Array([i + 1]), hexToBytes(author), JSON.stringify({ kind: 1952, pubkey: author, tags, content: '{}' })).lastInsertRowid)
+      const id = Number(add.run(new Uint8Array([i + 1]), hexToBytes(author), JSON.stringify({ kind: 1953, pubkey: author, tags, content: '{}' })).lastInsertRowid)
       label.run(id, d)
     })
     db.close()
@@ -427,26 +429,8 @@ describe('streaks', () => {
 })
 
 describe('Beat the Miner runs', () => {
-  const deal: MinerDeal = {
-    stream: [
-      { txid: 'a'.repeat(64), fee: 300, vsize: 100 },
-      { txid: 'b'.repeat(64), fee: 100, vsize: 200 },
-      { txid: 'c'.repeat(64), fee: 900, vsize: 100, parent: 1 },
-    ],
-    capacity: 300,
-    foundAt: 3,
-  }
-  const minerRun = (score: number) => finalizeEvent(buildMinerRun({ day, block, moves: ['pass', 'take', 'take'], score }), sk)
-  const policy = (findDeal: () => Promise<MinerDeal>) => createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
-
-  it('admits runs that replay on the day’s deal to their fees, and no others', async () => {
-    const p = policy(async () => deal)
-    expect(await p.decide(minerRun(1000))).toEqual({ permit: true })
-    expect(await p.decide(minerRun(1200))).toEqual({ permit: false, message: "the run doesn't replay to its fees" })
-    expect((await p.decide(sign({ kind: 1953, content: 'junk' }))).permit).toBe(false)
-  })
-
   it("admits runs unchecked when the day's transactions can't be read", async () => {
-    expect(await policy(() => Promise.reject(new Error('offline'))).decide(minerRun(1200))).toEqual({ permit: true })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: () => Promise.reject(new Error('offline')), perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
+    expect(await p.decide(run(200))).toEqual({ permit: true })
   })
 })

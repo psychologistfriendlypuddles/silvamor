@@ -43,7 +43,6 @@ export default defineConfig({
         APP_URL: 'http://localhost:4174',
         ALLOWED_ORIGINS: 'http://localhost:4174',
         RELAYS: 'ws://localhost:7777',
-        BLOCK_SOURCES: 'http://localhost:7777/api/blocks/tip/height',
         DATA_DIR: 'push-data-e2e',
       },
       timeout: 120_000,

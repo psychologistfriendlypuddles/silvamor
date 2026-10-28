@@ -1,7 +1,7 @@
 # Deploying Silvamor
 
 Silvamor is a static site: `npm run build` produces `dist/`, which any web server can serve. There
-is no game server; the only optional backend is the push notification service. The setup below
+is no game server; the only optional backend is the push service for streak reminders. The setup below
 assumes Nginx Proxy Manager (NPM) in front of a small nginx that serves `dist/`.
 
 ## 1. Build
@@ -62,7 +62,7 @@ server {
     root /usr/share/nginx/html;
     include /etc/nginx/snippets/silvamor-security.conf;
 
-    # Single-page app: unknown paths (e.g. /notifications) load the app.
+    # Single-page app: unknown paths (e.g. /reminders) load the app.
     location / {
         try_files $uri /index.html;
     }
@@ -87,10 +87,10 @@ server {
 
 relay.silvamor.com is Silvamor's **home relay** (`HOME_RELAY` in `src/lib/nostr/pool.ts`; change it
 with `VITE_HOME_RELAY`). Every Silvamor event goes there whatever relays a player picks: runs,
-groups, sprites, sprite choices, reports, featured picks, tip receipts, profiles and relay lists.
+leagues, sprites, sprite choices, reports, featured picks, tip receipts, profiles and relay lists.
 On login the app also copies the player's own latest profile, follow list and relay list there
 (they're already signed, so no new signature). So the home relay holds everything leaderboards and
-notifications need without asking other relays. Players still choose their own relays on the
+streak reminders need without asking other relays. Players still choose their own relays on the
 Relays page; those are used as well, and the page shows the home relay as always on. Signer apps
 never use it (see `NIP46_RELAYS`).
 
@@ -103,7 +103,7 @@ the guard has a Docker health check.
 | Layer | What it does |
 |-------|--------------|
 | Remove the pubkey whitelist | Every player can publish |
-| Event-kind allowlist (relay config) | Only Silvamor's 13 kinds are stored: 0, 3, 5, 62, 1952, 1953, 1984, 9735, 10002, 30000, 30004, 30078, 30951. Notes, reactions, DMs and the rest are refused |
+| Event-kind allowlist (relay config) | Only Silvamor's 12 kinds are stored: 0, 3, 5, 62, 1953, 1984, 9735, 10002, 30000, 30004, 30078, 30951. Notes, reactions, DMs and the rest are refused |
 | Size and time limits (relay config) | Events over 256 KB (room for follow lists of about 3,500 people), or dated more than 30 minutes ahead, are refused |
 | `limit_scrapers` (relay config) | Vague "give me everything" queries are refused; every query Silvamor makes is narrow enough |
 | Relay guard: admission | Each kind gets a size cap and a shape check, so junk of an allowed kind is refused too: runs must replay to their score, reports must be about a sprite (notes at most 83 characters, 1 KB in all), settings must be Silvamor's own, sprites must be valid, and so on |
@@ -113,20 +113,17 @@ the guard has a Docker health check.
 
 Check the option names against the sample `config.toml` of the nostr-rs-relay version you run.
 If the guard is down, the relay admits events but still applies its allowlist, so nothing is lost.
-Replaceable events (profiles, follow lists, relay lists, groups, sprites) need no clean-up: the
+Replaceable events (profiles, follow lists, relay lists, leagues, sprites) need no clean-up: the
 relay keeps only the newest of each. Runs are about 2 KB, so without clean-up 10,000 players a day
 add about 7 GB a year.
 
-The push service watches the default relays. To make it rely on your relay alone, start it with
-`RELAYS=wss://relay.silvamor.com`.
-
 ## 5. Push service (optional)
 
-Push notifications when the app is closed come from the push service in `push/` (see
+Streak reminders come from the push service in `push/` (see
 [push/README.md](../push/README.md)): run it (Docker image or `npm run push:start`) and give it its
 own proxy host in Nginx Proxy Manager, e.g. `push.silvamor.com` with Force SSL. Build the app with
 `VITE_PUSH_URL=https://push.silvamor.com` so players get it by default (they can pick another one
-on the Alerts page). Keep its data directory: losing `vapid.json` invalidates every subscription.
+on the Reminders page). Keep its data directory: losing `vapid.json` invalidates every subscription.
 
 ## 6. Sprite shop curators (optional)
 

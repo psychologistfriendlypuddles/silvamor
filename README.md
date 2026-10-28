@@ -7,36 +7,35 @@ as a Progressive Web App (no app stores). Players log in with their Nostr key, p
 their friends did. Every move is a signed Nostr event that any client can replay and check, so there
 is no game server.
 
-The main game is **Beat the Miner**: real transactions from the day's first Bitcoin block arrive one
-by one, and you fill a block with more fees than the miner. **Daily Deal**, a one-player card run,
-is the other daily game. Everyone gets the same game each day.
+The game is **Beat the Miner**: real transactions from the day's first Bitcoin block arrive one by
+one, and you fill a block with more fees than the NPC miner. Everyone gets the same game each day.
+More games are planned.
 
 ## Features
 
-**Beat the Miner** (the main game)
+**Beat the Miner**
 - Each day, 30 real transactions from the first Bitcoin block after midnight UTC arrive one at a
-  time; take each into your block or pass on it for good. Children only go in with their parent
+  time, mempool.space style; take each into your block (✓, or swipe down) or pass on it for good
+  (✗, or swipe up). Children only go in with their parent
+- Your block is drawn as a square whose area is its room: each transaction a tile of exactly its vB
+  share. Your sprite says the most interesting thing about the transaction on offer (an OP_RETURN
+  message, an inscription, a consolidation…)
 - The block is found at a moment nobody knows in advance (between the 18th and 30th transaction),
   so filling up early is safe but may miss richer transactions later
-- The miner plays the same stream by fee rate; you see its total live and try to beat it. After the
-  block is found you also see the best block that was possible
+- The NPC miner plays the same stream by fee rate; its block fills live under yours. After the block
+  is found you also see the best block that was possible
 - Your first block of the day is published to Nostr (kind 1953); clients and the relay replay it to
-  check the fees. Same leaderboards, podium and share note as Daily Deal
-
-**Daily Deal**
-- A one-player poker-hands run: 8 cards in hand, 4 hands to play and 3 discards, plus three of the
-  day's perks that boost certain hands
-- Everyone gets the same deck and perks, shuffled by the first Bitcoin block after midnight UTC, so
-  nobody can see the day's deal coming
-- Your first run of the day is published to Nostr; every client replays it to check the score
-- Leaderboards for the people you follow and for each of your groups, with a podium for the top
-  three. Scores stay hidden until you've finished your own run
-- Notifications when a friend beats your score: in the app, and as push notifications through a
-  self-hostable push service ([push/](push/README.md))
-- Tips: any player can be tipped any amount from their profile (tap them on the leaderboard)
+  check the fees. Streaks count the days in a row you play
+- Leagues: your own leaderboards of players you pick, each with its standings over today, 7 and
+  21 days
+- Streak reminders: a push notification a few hours before the day ends if your streak would end,
+  through a self-hostable push service ([push/](push/README.md))
+- Social page: posts about the game (by hashtag, globally or from people you follow), and global
+  Top Scores (today, 7 and 21 days) and Top Streaks, each with a podium for the top three
+- Tips: any player can be tipped any amount from their profile (tap them on a leaderboard)
 
 **Sprites**
-- Animated player sprites that cheer you on during your run and stand on the leaderboard podium,
+- Animated player sprites that cheer you on during your run and stand on the podiums,
   with a starter ostrich and an open sprite sheet standard ([docs/SPRITES.md](docs/SPRITES.md))
 - Sprite shop: every sprite is free to share and use; players can tip artists they like with a zap,
   straight to the artist (no fee)
@@ -60,7 +59,7 @@ retired; their code is kept in git at the `multiplayer-archive` tag.
 - [docs/PROTOCOL.md](docs/PROTOCOL.md): the open protocol (the day's deal, publishing runs, leaderboards)
 - [docs/SPRITES.md](docs/SPRITES.md): the sprite sheet standard, tips and moderation
 - [docs/DEPLOY.md](docs/DEPLOY.md): hosting the app (and the optional push service)
-- [push/README.md](push/README.md): the push notification service
+- [push/README.md](push/README.md): the push service (streak reminders)
 - [guard/README.md](guard/README.md): the relay guard (event admission and clean-up for relay.silvamor.com)
 - Terms of use and privacy policy: in the app at `/terms` and `/privacy` (`src/pages/Legal.tsx`)
 
@@ -75,7 +74,7 @@ npm run lint
 npm test           # unit tests (rules, runs, push service, sprites, moderation…)
 npm run e2e        # end-to-end tests with several browsers (system Chromium, a few minutes)
 npm run push:build # build the push service (push/dist/server.mjs); npm run push:start runs it
-npm run stats      # Daily Deal players per day, from the public relays
+npm run stats      # Beat the Miner players per day, from Silvamor's relay
 ```
 
 To develop without touching public relays, run the bundled in-memory relay and point the app at it.
@@ -87,10 +86,9 @@ npm run relay                              # ws://localhost:7777
 VITE_RELAYS=ws://localhost:7777 VITE_BLOCK_SOURCES=http://localhost:7777/api/blocks/tip/height npm run dev
 ```
 
-Open two browser profiles (or one normal and one private window), following each other, to see
-the leaderboard fill up.
+Open two browser profiles (or one normal and one private window) to see the leaderboards fill up.
 
-To try push notifications before deploying (desktop browser, since `localhost` counts as secure;
+To try streak reminders before deploying (desktop browser, since `localhost` counts as secure;
 `npm run dev` has no service worker, so use a production build):
 
 ```sh
@@ -98,7 +96,7 @@ npm run push:build && APP_URL=http://localhost:4173 npm run push:start   # push 
 VITE_PUSH_URL=http://localhost:8787 npm run build && npm run preview     # app on :4173
 ```
 
-Then turn on "Notify me when Silvamor is closed" on the Alerts page.
+Then turn on "Remind me to keep my streak" on the Reminders page.
 
 ### Build-time settings
 
@@ -116,8 +114,8 @@ All optional; set them when running `npm run build` (or `npm run dev`).
 
 ### Stats
 
-`npm run stats` counts Daily Deal players per day over the last 30 days (UTC), with each day's top
-score, straight from the public relays: nothing to deploy. A player counts once a day, by their first
+`npm run stats` counts Beat the Miner players per day over the last 30 days (UTC), with each day's top
+fees, straight from Silvamor's relay: nothing to deploy. A player counts once a day, by their first
 published run; scores are as claimed (the app replays them, this script doesn't).
 
 ```sh
@@ -139,15 +137,15 @@ the nginx config, including the security headers the end-to-end tests verify.
 
 ```
 src/
-  games/         one folder per game: rules, board and helpers (today: dailydeal/, with its seeded deal)
-  lib/           tips & payments, sprites, moderation, notifications, Bitcoin blocks
-  lib/nostr/     relay pool, signers (NIP-07/46/local), Daily Deal runs, profiles, groups
-  hooks/         useDailyRuns (the day's runs), useDailyWatcher (notifications)
-  stores/        zustand stores: session, relays, profiles, groups, sprites, moderation, notifications…
+  games/         one folder per game (today: miner/), plus the day's seed block and seeded random numbers
+  lib/           tips & payments, sprites, moderation, push, Bitcoin blocks
+  lib/nostr/     relay pool, signers (NIP-07/46/local), game runs, profiles, leagues
+  hooks/         useGameRuns (the day's runs), useStreaks, useBoardRuns (leaderboards)
+  stores/        zustand stores: session, relays, profiles, leagues (groups), sprites, moderation…
   components/    layout, UI kit, sprites, profiles, tips, dialogs
-  pages/         Login, Unlock, Daily (home), Groups, Sprites shop, Notifications, Relays, Profile
+  pages/         Login, Unlock, Miner (home), Social, Leagues, Sprites shop, Reminders, Relays, Profile
   sw.ts          service worker (offline shell, push)
-push/            the self-hostable push notification service
+push/            the self-hostable push service (streak reminders)
 guard/           the relay guard for relay.silvamor.com (gRPC event admission, clean-up)
 scripts/         dev relay (with fake Bitcoin blocks, Lightning and Blossom), sprite generator, stats
 tests/e2e/       Playwright end-to-end tests

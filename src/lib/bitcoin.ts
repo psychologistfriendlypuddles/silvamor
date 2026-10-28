@@ -1,7 +1,7 @@
 import { factsOf, type RawTx, type TxFacts } from '../games/miner/facts'
 
-// Bitcoin blocks: each day's Daily Deal is seeded by the first block after midnight UTC
-// (docs/PROTOCOL.md, "Daily Deal").
+// Bitcoin blocks: each day's game is seeded by the first block after midnight UTC
+// (docs/PROTOCOL.md, "The day's seed block"), and Beat the Miner plays its transactions.
 
 const DEFAULT_SOURCES = ['https://mempool.space/api/blocks/tip/height', 'https://blockstream.info/api/blocks/tip/height']
 

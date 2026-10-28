@@ -1,6 +1,6 @@
 import type { Event, EventTemplate } from 'nostr-tools/pure'
 import type { Block } from '../bitcoin'
-import { dayStart } from '../../games/dailydeal/daily'
+import { dayStart } from '../../games/day'
 import { decodeMoves, encodeMoves, minerRules, type MinerDeal, type MinerMove, type MinerState } from '../../games/miner/rules'
 
 // See docs/PROTOCOL.md, "Beat the Miner".
@@ -17,12 +17,14 @@ export interface MinerRun {
   moves: string
   /** The fees the run claims (sats); `verifyMinerRun` checks it. */
   score: number
+  /** The days in a row the player claims to have played, today included; `confirmedStreak` checks it. */
+  streak: number
   createdAt: number
 }
 
 const tag = (event: Event, name: string) => event.tags.find((t) => t[0] === name)
 
-export function buildMinerRun(f: { day: string; block: Block; moves: MinerMove[]; score: number }): EventTemplate {
+export function buildMinerRun(f: { day: string; block: Block; moves: MinerMove[]; score: number; streak: number }): EventTemplate {
   return {
     kind: MINER_RUN_KIND,
     created_at: Math.floor(Date.now() / 1000),
@@ -32,6 +34,7 @@ export function buildMinerRun(f: { day: string; block: Block; moves: MinerMove[]
       ['l', f.day, MINER_LABEL],
       ['block', String(f.block.height), f.block.hash],
       ['score', String(f.score)],
+      ['streak', String(f.streak)],
       ['alt', `Beat the Miner on Silvamor: ${f.score} sats in fees`],
     ],
   }
@@ -51,8 +54,24 @@ export function parseMinerRun(event: Event): MinerRun | null {
     return null
   }
   if (typeof moves !== 'string' || !/^[tp]{0,64}$/.test(moves)) return null
-  return { event, author: event.pubkey, day: label, block: { height, hash: block![2] }, moves, score, createdAt: event.created_at }
+  // A missing or nonsense streak counts as a first day.
+  const claimed = Number(tag(event, 'streak')?.[1])
+  const streak = Number.isSafeInteger(claimed) && claimed >= 1 ? claimed : 1
+  return { event, author: event.pubkey, day: label, block: { height, hash: block![2] }, moves, score, streak, createdAt: event.created_at }
 }
+
+/**
+ * Streaks: a run claiming N days in a row only counts if the player's run the day before, on
+ * Silvamor's relay, claims N - 1. That relay checks the same when it takes a run, so each link only
+ * needs the day before, and runs deleted after 30 days don't break a streak (docs/PROTOCOL.md).
+ * `yesterday`: the streaks the player's runs the day before claim.
+ */
+export function confirmedStreak(run: MinerRun, yesterday: number[] | undefined): number {
+  return run.streak > 1 && yesterday?.includes(run.streak - 1) ? run.streak : 1
+}
+
+/** The streak to claim on a new run, from the player's runs the day before. */
+export const nextStreak = (yesterday: number[] | undefined) => (yesterday?.length ? Math.max(...yesterday) : 0) + 1
 
 /** Replays a run's moves on the deal; the finished state, or null if they aren't a legal, complete run. */
 export function replayMinerRun(deal: MinerDeal, moves: string): MinerState | null {

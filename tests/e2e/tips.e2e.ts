@@ -20,17 +20,19 @@ async function tipRequests(pubkey: string): Promise<{ tags: string[][] }[]> {
 }
 
 test('tipping a friend from the podium: any amount, as a plain zap to the person', async ({ browser }) => {
-  const bob = await playerOnline(browser, 'Bob', '/', { wallet: true })
+  // Top Scores is everyone's, other tests' Bobs too: this Bob has a name of his own.
+  const name = `Bob${Date.now().toString(36)}`
+  const bob = await playerOnline(browser, name, '/', { wallet: true })
   await publishRun(bob.sk)
   const alice = await onPodium(browser, 'Alice', [bob.pubkey], { wallet: true })
 
   // Tapping Bob's spot opens his profile, with a tip button (any amount, starting at 21).
-  await alice.page.getByRole('button', { name: /^\d\. Bob: / }).click()
-  await alice.page.getByRole('button', { name: 'Tip Bob', exact: true }).click()
+  await alice.page.getByRole('button', { name: new RegExp(`^\\d\\. ${name}: `) }).click()
+  await alice.page.getByRole('button', { name: `Tip ${name}`, exact: true }).click()
   await expect(alice.page.getByLabel('Tip in sats')).toHaveValue('21')
   await alice.page.getByLabel('Tip in sats').fill('500')
   await alice.page.getByRole('button', { name: 'Tip with browser wallet' }).click()
-  await expect(alice.page.getByText('Tipped Bob 500 sats ⚡')).toBeVisible()
+  await expect(alice.page.getByText(`Tipped ${name} 500 sats ⚡`)).toBeVisible()
 
   // Tips are plain zaps to the person: they don't point at anything.
   await expect.poll(async () => (await tipRequests(bob.pubkey)).length).toBe(1)

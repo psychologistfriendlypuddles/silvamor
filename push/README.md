@@ -1,14 +1,14 @@
 # Silvamor push service
 
-A small, self-hostable watchtower. Players who turn on notifications register their browser's
-push subscription here, signed with their Nostr key (NIP-98, no accounts). The service watches
-Nostr relays for Daily Deal runs that tag a subscriber as beaten, and sends a Web Push
-notification when the app itself would show one: the run's author is someone the subscriber
-follows, it's the author's first run of the day, it replays to its score, and it beats the
-subscriber's own run that day. It uses the app's own check (`beatenNotice` in
-`../src/lib/notifications.ts`), so the two always agree.
+A small, self-hostable watchtower for streak reminders. Players who turn reminders on register
+their browser's push subscription here, signed with their Nostr key (NIP-98, no accounts). A few
+hours before the day ends (midnight UTC), the service reads subscribers' Beat the Miner runs from
+Silvamor's relay and sends one Web Push notification to each player whose streak reached
+yesterday and who hasn't played today: "🔥 Your 12-day streak ends in 4 hours. Play today to keep
+it going." Silvamor's relay checks every run's streak before keeping it, so the service takes the
+streak as it is.
 
-It only learns what is already public on the relays, plus where to deliver pushes.
+It only learns what is already public on the relay, plus where to deliver pushes.
 
 ## Run it
 
@@ -41,8 +41,8 @@ call HTTPS services.
 | `PUBLIC_URL` | `http://localhost:8787` | This service's public address, exactly as the app calls it. Signed requests name this URL, so it must match. |
 | `APP_URL` | `http://localhost:4173` | Where the app lives; notification links point here |
 | `ALLOWED_ORIGINS` | `APP_URL` | Comma-separated origins allowed to call the service (`*` for any) |
-| `RELAYS` | Silvamor's default relays | Comma-separated relays to watch |
-| `BLOCK_SOURCES` | mempool.space, blockstream.info | Bitcoin block sources (Esplora API), to find each day's seed block and check runs |
+| `RELAYS` | `wss://relay.silvamor.com` | Comma-separated relays to read runs from. Streaks are only checked on Silvamor's relay. |
+| `REMIND_HOURS_BEFORE` | `4` | How long before the day ends (midnight UTC) to remind |
 | `DATA_DIR` | `./push-data` (`/data` in Docker) | Where `push.sqlite` and `vapid.json` live. Keep it: losing `vapid.json` invalidates every subscription. |
 | `VAPID_SUBJECT` | `mailto:admin@example.com` | Contact the push services can reach you at |
 
@@ -55,5 +55,5 @@ call HTTPS services.
 | `DELETE` | `/subscriptions` | Body `{ "endpoint": "…" }`, NIP-98 signed; only your own |
 | `GET` | `/health` | `{ ok, subscribers }` |
 
-When someone subscribes, runs that already tag them are marked as sent, so they only get news
-from then on. Each notice is pushed once; expired subscriptions are removed.
+Each player gets at most one reminder a day, and none once they've played. Expired subscriptions
+are removed.

@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { expectNoErrors, followsEvent, goTo, login, newPlayer, onPodium, playerOnline, publishRun, publishSprite, seed } from './helpers'
+import { expectNoErrors, followsEvent, goTo, login, newPlayer, onPodium, playerOnline, publishRun, publishSprite, seed, type Player } from './helpers'
+
+/** `name`'s spot on the Top Scores podium. */
+const spot = (viewer: Player, name: string) => viewer.page.getByRole('list', { name: 'Podium' }).getByRole('button', { name: new RegExp(`^\\d\\. ${name}: `) })
 
 test('featuring a sprite, and hiding its artist (until unhidden)', async ({ browser }) => {
   const name = `Weird bird ${Date.now() % 100000}`
@@ -25,16 +28,18 @@ test('featuring a sprite, and hiding its artist (until unhidden)', async ({ brow
   await bob.page.getByRole('button', { name: 'Hide artist' }).click()
   await expect(bob.page.getByText('Hid sprites by Alice')).toBeVisible()
   await expect(bob.page.getByRole('button', { name, exact: true })).toHaveCount(0)
-  await goTo(bob, '/daily-deal')
-  await expect(bob.page.getByRole('list', { name: 'Podium' }).getByRole('img', { name: /^Ostrich / })).toHaveCount(2)
+  await goTo(bob, '/social')
+  await bob.page.getByRole('tab', { name: 'Top Scores' }).click()
+  await expect(spot(bob, 'Alice').getByRole('img', { name: /^Ostrich / })).toBeVisible()
 
   // Unhiding from the safety sheet brings them back.
   await goTo(bob, '/sprites')
   await bob.page.getByRole('button', { name: 'Shop safety' }).click()
   await bob.page.getByRole('button', { name: 'Unhide' }).click()
   await bob.page.getByRole('button', { name: 'Close safety' }).click()
-  await goTo(bob, '/daily-deal')
-  await expect(bob.page.getByRole('img', { name: new RegExp(`^${name} \\((win|happy)\\)$`) })).toBeVisible()
+  await goTo(bob, '/social')
+  await bob.page.getByRole('tab', { name: 'Top Scores' }).click()
+  await expect(spot(bob, 'Alice').getByRole('img', { name: new RegExp(`^${name} \\((win|happy)\\)$`) })).toBeVisible()
   expectNoErrors(alice, bob)
 })
 
@@ -61,8 +66,9 @@ test('three reports from people you follow blur a sprite, unless you turn that o
   await carol.page.getByRole('button', { name: 'All', exact: true }).click()
   const card = carol.page.getByRole('button', { name, exact: true })
   await expect(card.getByText('Reported')).toBeVisible()
-  await goTo(carol, '/daily-deal')
-  await expect(carol.page.getByRole('list', { name: 'Podium' }).getByRole('img', { name: /^Ostrich / })).toHaveCount(2)
+  await goTo(carol, '/social')
+  await carol.page.getByRole('tab', { name: 'Top Scores' }).click()
+  await expect(spot(carol, 'Alice').getByRole('img', { name: /^Ostrich / })).toBeVisible()
 
   // Dave follows only Alice: the same reports don't affect him.
   const dave = await onPodium(browser, 'Dave', [alice.pubkey])
@@ -73,7 +79,8 @@ test('three reports from people you follow blur a sprite, unless you turn that o
   await carol.page.getByRole('button', { name: 'Shop safety' }).click()
   await carol.page.getByLabel(/Blur reported sprites/).uncheck()
   await carol.page.getByRole('button', { name: 'Close safety' }).click()
-  await goTo(carol, '/daily-deal')
-  await expect(carol.page.getByRole('img', { name: onAlice })).toBeVisible()
+  await goTo(carol, '/social')
+  await carol.page.getByRole('tab', { name: 'Top Scores' }).click()
+  await expect(spot(carol, 'Alice').getByRole('img', { name: onAlice })).toBeVisible()
   expectNoErrors(alice, carol, dave)
 })

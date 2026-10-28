@@ -186,7 +186,7 @@ export function TermsPage({ standalone }: { standalone?: boolean }) {
         <p>
           SILVAMOR IS PROVIDED “AS IS” AND “AS AVAILABLE”, WITHOUT WARRANTIES OF ANY KIND, WHETHER EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF
           MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE AND NON-INFRINGEMENT. We don’t promise that it will be available, accurate, secure
-          or free of errors, that runs, payments or notifications will reach anyone, or that scores and leaderboards are correct or complete.
+          or free of errors, that runs, payments or reminders will reach anyone, or that scores and leaderboards are correct or complete.
         </p>
       </Section>
 
@@ -226,8 +226,8 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
 
       <Section title="1. What’s public on Nostr">
         <p>
-          Everything you publish through Silvamor is a signed Nostr event sent to public relays: your profile, follow list and relay list, your game runs (Beat the Miner and Daily Deal: every move
-          and the score, so anyone can see how you played), groups, sprites and sprite choices, reports, featured picks, and zap receipts for tips. Anyone can read, copy and keep these, and
+          Everything you publish through Silvamor is a signed Nostr event sent to public relays: your profile, follow list and relay list, your game runs (every move
+          and the score, so anyone can see how you played), your streak, leagues, the notes you share, sprites and sprite choices, reports, featured picks, and zap receipts for tips. Anyone can read, copy and keep these, and
           they’re tied to your public key. Don’t publish anything you want kept private.
         </p>
       </Section>
@@ -237,7 +237,7 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
         <ul className={ul}>
           <li>your login: your public key, plus, if you chose to be remembered, your private key encrypted with your password (NIP-49);</li>
           <li>a device key used only to talk to your signer app;</li>
-          <li>your relay list, notification history and settings, and a cached copy of your shop settings;</li>
+          <li>your relay list and settings, and a cached copy of your shop settings;</li>
           <li>your game runs in progress, the Bitcoin block that seeded the day’s games, and the day’s Beat the Miner transactions;</li>
           <li>if you connect one, your wallet connection (Nostr Wallet Connect).</li>
         </ul>
@@ -271,15 +271,15 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
             type). We use these only to run and protect the site, and keep them for a short time.
           </li>
           <li>
-            <b>Push notifications (optional).</b> If you turn them on, the push service stores your public key, your browser’s push address, and which
-            notices it has already sent you. To decide when to notify you, it reads public game runs and follow lists. Your browser’s push
-            provider (such as Google, Apple or Mozilla) delivers the notifications. Turning notifications off deletes your push address.
+            <b>Streak reminders (optional).</b> If you turn them on, the push service stores your public key, your browser’s push address, and the
+            days it has already reminded you. To decide when to remind you, it reads your public game runs. Your browser’s push provider (such as
+            Google, Apple or Mozilla) delivers the reminders. Turning reminders off deletes your push address.
           </li>
           <li>
-            <b>Our relay.</b> Silvamor always publishes your game runs, profile, follow list, relay list, groups, sprites, sprite choices,
+            <b>Our relay.</b> Silvamor always publishes your game runs, profile, follow list, relay list, leagues, sprites, sprite choices,
             reports and tip receipts to relay.silvamor.com, which we run, as well as to the relays you choose. We use them to show leaderboards and
-            send notifications. Runs and tip receipts are deleted after <b>30 days</b>. Sprite reports are kept so moderation keeps working. Profiles,
-            follow lists, relay lists, groups, sprites and settings are kept only in their latest version: a newer one replaces the old, and they’re
+            send streak reminders. Runs and tip receipts are deleted after <b>30 days</b>. Sprite reports are kept so moderation keeps working. Profiles,
+            follow lists, relay lists, leagues, sprites and settings are kept only in their latest version: a newer one replaces the old, and they’re
             deleted when you delete them or ask us to.
             The relay also records the IP address and time of each connection, which we keep for no more than <b>30 days</b>.
           </li>
@@ -307,7 +307,7 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
             (your public key and its time) so the deleted events can’t be uploaded there again. To have your connection records deleted too,{' '}
             <NostrContact>message us on Nostr</NostrContact> from your key. We can’t delete copies on other relays or in other apps.
           </li>
-          <li>Turn push notifications off at any time on the Alerts page.</li>
+          <li>Turn streak reminders off at any time on the Reminders page.</li>
           <li>
             Ask relays to delete your events (Silvamor sends deletion requests where it offers to delete something), though relays and others may keep
             copies.

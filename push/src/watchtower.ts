@@ -1,16 +1,10 @@
 import { SimplePool } from 'nostr-tools/pool'
-import type { Event } from 'nostr-tools/pure'
-import * as nip19 from 'nostr-tools/nip19'
-import { DAILY_RUN_KIND } from '../../src/lib/nostr/dailyRuns'
-import { beatenNotice, type Notice, type RunLookup } from '../../src/lib/notifications'
-import { noticeText } from '../../src/lib/noticeText'
-import { displayName, parseProfile, type ProfileContent } from '../../src/lib/nostr/profile'
-import { dayStart } from '../../src/games/dailydeal/daily'
-import type { Block } from '../../src/lib/bitcoin'
+import { MINER_RUN_KIND, parseMinerRun, type MinerRun } from '../../src/lib/nostr/minerRuns'
+import { dayOf, dayStart, previousDay } from '../../src/games/day'
 import type { PushSubscriptionData, Store } from './store'
 
-// The same check the app uses decides what's worth a notification (src/lib/notifications.ts),
-// so the app and this service can't disagree.
+// Streak reminders: a few hours before the day ends (midnight UTC), subscribers whose streak
+// reached yesterday and who haven't played today get one push.
 
 export interface PushPayload {
   title: string
@@ -24,81 +18,78 @@ export interface PushPayload {
 export type SendResult = 'ok' | 'gone' | 'error'
 
 export interface WatchtowerOptions {
+  /** Where runs are kept: Silvamor's relay, whose guard checks each run's streak. */
   relays: string[]
   store: Store
   /** Delivers one push. 'gone' means the subscription expired and is removed. */
   send(sub: PushSubscriptionData, payload: PushPayload): Promise<SendResult>
-  /** The first Bitcoin block at or after `time` (unix seconds): a day's seed block. Null until mined. */
-  findBlock(time: number): Promise<Block | null>
   /** Where the app lives, e.g. https://www.silvamor.com, for links in notifications. */
   appUrl: string
+  /** How long before the day ends to remind, in hours (default 4). */
+  remindHoursBefore?: number
+  /** How often to look, in milliseconds (default 5 minutes); 0 never looks by itself (tests call `tick`). */
+  every?: number
+  /** The time now (ms), for tests. */
+  now?: () => number
   log?: (message: string) => void
 }
 
-/** Runs that beat someone stay worth a push this long. */
-const RECENT_SECONDS = 2 * 24 * 3600
-/** Follow lists are fetched again after this long. */
-const FOLLOWS_TTL_MS = 10 * 60_000
+const DAY_SECONDS = 24 * 3600
 
 export function createWatchtower(opts: WatchtowerOptions) {
   const log = opts.log ?? (() => {})
+  const now = opts.now ?? Date.now
+  const before = (opts.remindHoursBefore ?? 4) * 3600
   const pool = new SimplePool({ enableReconnect: true })
-  const profiles = new Map<string, ProfileContent>()
-  const blocks = new Map<string, Block>()
-  const follows = new Map<string, { at: number; set: Promise<Set<string>> }>()
-  let sub: { close(): void } | null = null
-  // Runs are handled one at a time, so a run arriving twice can't be pushed twice.
-  let queue = Promise.resolve()
+  let running: Promise<void> | null = null
   let closed = false
 
-  function followsOf(pubkey: string): Promise<Set<string>> {
-    const cached = follows.get(pubkey)
-    if (cached && Date.now() - cached.at < FOLLOWS_TTL_MS) return cached.set
-    const set = pool
-      .get(opts.relays, { kinds: [3], authors: [pubkey] }, { maxWait: 4000 })
-      .then((e) => new Set((e?.tags ?? []).filter((t) => t[0] === 'p').map((t) => t[1])))
-    follows.set(pubkey, { at: Date.now(), set })
-    return set
-  }
-
-  const lookup: RunLookup = {
-    follows: async (me, author) => (await followsOf(me)).has(author),
-    async dayBlock(day) {
-      if (!blocks.has(day)) {
-        const block = await opts.findBlock(dayStart(day))
-        if (block) blocks.set(day, block)
-      }
-      return blocks.get(day) ?? null
-    },
-    runs: (authors, day) => pool.querySync(opts.relays, { kinds: [DAILY_RUN_KIND], authors, '#l': [day] }, { maxWait: 4000 }),
-  }
-
-  /** Every subscriber a run tags as beaten gets one push, if it checks out. */
-  async function handle(run: Event) {
-    const subscribers = new Set(opts.store.pubkeys())
-    const tagged = run.tags.filter((t) => t[0] === 'p' && subscribers.has(t[1])).map((t) => t[1])
-    for (const pubkey of tagged) {
-      const id = `beaten:${run.id}`
-      if (closed || opts.store.wasSent(pubkey, id)) continue
-      const notice = await beatenNotice(run, pubkey, lookup).catch(() => null)
-      if (!notice) continue
-      opts.store.markSent(pubkey, [id]) // first, so a slow push can't go out twice
-      await loadProfiles([notice.actor])
-      await deliver(pubkey, toPayload(notice))
+  /** Each author's first run of the day (the one that counts). */
+  async function firstRuns(authors: string[], days: string[]): Promise<Map<string, MinerRun>> {
+    const filters = Array.from({ length: Math.ceil(authors.length / 500) }, (_, i) => ({
+      kinds: [MINER_RUN_KIND],
+      authors: authors.slice(i * 500, i * 500 + 500),
+      '#l': days,
+    }))
+    const events = (await Promise.all(filters.map((f) => pool.querySync(opts.relays, f, { maxWait: 6000 })))).flat()
+    const first = new Map<string, MinerRun>()
+    for (const run of events.map(parseMinerRun)) {
+      if (!run || !days.includes(run.day) || run.createdAt < dayStart(run.day)) continue
+      const id = `${run.author}:${run.day}`
+      const other = first.get(id)
+      if (!other || run.createdAt < other.createdAt || (run.createdAt === other.createdAt && run.event.id < other.event.id)) first.set(id, run)
     }
+    return first
   }
 
-  function resubscribe() {
-    sub?.close()
-    const pubkeys = opts.store.pubkeys()
-    sub =
-      pubkeys.length === 0
-        ? null
-        : pool.subscribe(
-            opts.relays,
-            { kinds: [DAILY_RUN_KIND], '#p': pubkeys, since: Math.floor(Date.now() / 1000) - RECENT_SECONDS },
-            { onevent: (e) => (queue = queue.then(() => handle(e)).catch(() => {})) },
-          )
+  async function remind() {
+    const at = Math.floor(now() / 1000)
+    const day = dayOf(new Date(at * 1000))
+    const ends = dayStart(day) + DAY_SECONDS
+    if (at < ends - before) return
+    const id = `streak:${day}`
+    const pending = opts.store.pubkeys().filter((p) => !opts.store.wasSent(p, id))
+    if (pending.length === 0) return
+    const yesterday = previousDay(day)
+    const runs = await firstRuns(pending, [yesterday, day])
+    for (const pubkey of pending) {
+      if (closed) return
+      if (runs.has(`${pubkey}:${day}`)) {
+        opts.store.markSent(pubkey, [id]) // played today: nothing to remind
+        continue
+      }
+      // No streak to keep (or the relay didn't answer): look again next time.
+      const streak = runs.get(`${pubkey}:${yesterday}`)?.streak
+      if (!streak) continue
+      opts.store.markSent(pubkey, [id]) // first, so a slow push can't go out twice
+      const hours = Math.max(1, Math.round((ends - at) / 3600))
+      await deliver(pubkey, {
+        title: 'Silvamor',
+        body: `🔥 Your ${streak}-day streak ends in ${hours} hour${hours === 1 ? '' : 's'}. Play today to keep it going.`,
+        url: `${opts.appUrl}/`,
+        tag: id,
+      })
+    }
   }
 
   async function deliver(pubkey: string, payload: PushPayload) {
@@ -109,40 +100,23 @@ export function createWatchtower(opts: WatchtowerOptions) {
     }
   }
 
-  function toPayload(notice: Notice): PushPayload {
-    const name = displayName(profiles.get(notice.actor), nip19.npubEncode(notice.actor))
-    const { emoji, text } = noticeText(notice, name)
-    return { title: 'Silvamor', body: `${emoji} ${text}`, url: `${opts.appUrl}/daily-deal`, tag: `dailydeal:${notice.day}` }
+  /** Looks for anyone to remind now; one look at a time. */
+  function tick(): Promise<void> {
+    running ??= remind()
+      .catch((err) => log(`reminders failed: ${err instanceof Error ? err.message : err}`))
+      .finally(() => (running = null))
+    return running
   }
 
-  async function loadProfiles(pubkeys: string[]) {
-    const missing = [...new Set(pubkeys)].filter((p) => !profiles.has(p))
-    if (missing.length === 0) return
-    const found = await pool.querySync(opts.relays, { kinds: [0], authors: missing }, { maxWait: 3000 }).catch(() => [])
-    for (const e of found.sort((a, b) => a.created_at - b.created_at)) profiles.set(e.pubkey, parseProfile(e))
-  }
-
-  resubscribe()
+  const every = opts.every ?? 5 * 60_000
+  const timer = every > 0 ? setInterval(tick, every) : null
+  if (timer) void tick()
 
   return {
-    /**
-     * Call after someone subscribes: runs that already tag them count as sent (no flood
-     * of old news), then their new ones are watched.
-     */
-    async subscribed(pubkey: string) {
-      const since = Math.floor(Date.now() / 1000) - RECENT_SECONDS
-      const old = await pool.querySync(opts.relays, { kinds: [DAILY_RUN_KIND], '#p': [pubkey], since }, { maxWait: 4000 })
-      opts.store.markSent(pubkey, old.map((e) => `beaten:${e.id}`))
-      follows.delete(pubkey)
-      resubscribe()
-    },
-    /** Re-follow after someone unsubscribes. */
-    unsubscribed: () => resubscribe(),
-    /** For tests: wait for the runs seen so far to be handled. */
-    settled: () => queue,
+    tick,
     close() {
       closed = true
-      sub?.close()
+      if (timer) clearInterval(timer)
       pool.destroy()
     },
   }

@@ -9,12 +9,12 @@ const now = Math.floor(Date.now() / 1000 / 86400) * 86400 + 12 * 3600
 const day = (seconds: number) => new Date(seconds * 1000).toISOString().slice(0, 10)
 let relay: DevRelay
 
-/** A Daily Deal run (kind 1952) for the day `at` falls on. */
+/** A Beat the Miner run (kind 1953) for the day `at` falls on. */
 async function run(sk: Uint8Array, score: number, at = now - 3600) {
   const conn = await Relay.connect(relay.url)
   await conn.publish(
     finalizeEvent(
-      { kind: 1952, created_at: at, content: '{"moves":[]}', tags: [['L', 'silvamor/dailydeal'], ['l', day(at), 'silvamor/dailydeal'], ['score', String(score)]] },
+      { kind: 1953, created_at: at, content: '{"moves":""}', tags: [['L', 'silvamor/miner'], ['l', day(at), 'silvamor/miner'], ['score', String(score)]] },
       sk,
     ),
   )

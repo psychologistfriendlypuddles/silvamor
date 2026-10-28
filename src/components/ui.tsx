@@ -122,3 +122,22 @@ export function PageTitle({ title, subtitle, emoji }: { title: string; subtitle?
     </div>
   )
 }
+
+/** A row of tabs to switch between a few views. */
+export function Switch<T extends string>({ options, value, onChange, label }: { options: { id: T; title: string }[]; value: T; onChange(v: T): void; label: string }) {
+  return (
+    <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label={label}>
+      {options.map((o) => (
+        <button
+          key={o.id}
+          role="tab"
+          aria-selected={o.id === value}
+          onClick={() => onChange(o.id)}
+          className={`shrink-0 rounded-xl px-3 py-1.5 text-sm font-semibold ${o.id === value ? 'bg-white/10 text-white' : 'text-white/50 hover:text-white'}`}
+        >
+          {o.title}
+        </button>
+      ))}
+    </div>
+  )
+}

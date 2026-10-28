@@ -3,7 +3,7 @@ import { expectNoErrors, goTo, playerOnline } from './helpers'
 
 const subscribers = async () => ((await (await fetch('http://localhost:8787/health')).json()) as { subscribers: number }).subscribers
 
-test('turning push notifications on and off registers with the push service', async ({ browser }) => {
+test('turning streak reminders on and off registers with the push service', async ({ browser }) => {
   const alice = await playerOnline(browser, 'Alice')
   // Headless Chromium can't reach a real browser push service, so stand in for the browser's
   // subscription; the app's request to our push service (NIP-98 signed) is real.
@@ -27,11 +27,11 @@ test('turning push notifications on and off registers with the push service', as
   await login(alice)
 
   const before = await subscribers()
-  await goTo(alice, '/notifications')
-  await expect(alice.page.getByText('When Silvamor is closed', { exact: true })).toBeVisible()
+  await goTo(alice, '/reminders')
+  await expect(alice.page.getByText('Streak reminders', { exact: true })).toBeVisible()
   await expect(alice.page.getByText('Via localhost:8787')).toBeVisible()
   await alice.page.getByRole('switch').click()
-  await expect(alice.page.getByText(/Push notifications on/)).toBeVisible()
+  await expect(alice.page.getByText(/Streak reminders on/)).toBeVisible()
   expect(await subscribers()).toBe(before + 1)
 
   await alice.page.getByRole('switch').click()

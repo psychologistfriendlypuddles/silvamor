@@ -1,7 +1,7 @@
 // Minimal in-memory Nostr relay for local development and end-to-end tests.
 // Usage: npm run relay   (then start the app with VITE_RELAYS=ws://localhost:7777)
 //
-// It also fakes a Bitcoin block source (the day's seed block for Daily Deal):
+// It also fakes a Bitcoin block source (the day's seed block, and its transactions):
 //   GET  /api/blocks/tip/height   -> current height (start the app with
 //                                    VITE_BLOCK_SOURCES=http://localhost:7777/api/blocks/tip/height)
 //   GET  /api/blocks/<height>     -> up to 10 blocks from <height> down (hash and timestamp, as Esplora)

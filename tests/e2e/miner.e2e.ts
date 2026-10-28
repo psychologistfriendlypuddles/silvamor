@@ -1,12 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Relay } from 'nostr-tools/relay'
-import { RELAY, expectNoErrors, followsEvent, login, newPlayer, profileEvent, publishMinerRun, seed, today, todaysDeal } from './helpers'
+import { RELAY, expectNoErrors, followsEvent, login, newPlayer, profileEvent, publishMinerRun, publishRun, seed, today, todaysDeal } from './helpers'
 import { blocked, encodeMoves, minerFees, minerMoves, minerRules, percentOf, type MinerMove } from '../../src/games/miner/rules'
 
 const sats = (n: number) => `${n.toLocaleString('en-US')} sats`
 /** The card on offer is transaction `n` (counting from 1). */
-const onOffer = (page: Page, n: number) => expect(page.getByLabel('On offer')).toContainText(new RegExp(`^#${n}\\D`))
+const onOffer = (page: Page, n: number) => expect(page.getByLabel('On offer').locator('span').first()).toHaveText(`#${n}`)
 
 /** Swipes the card on offer: down takes it, up passes on it. */
 async function swipe(page: Page, move: MinerMove) {
@@ -19,7 +19,7 @@ async function swipe(page: Page, move: MinerMove) {
   await page.mouse.up()
 }
 
-test('beat the miner: take or pass until the block is found, then the podium and a note to share', async ({ browser }) => {
+test('beat the miner: take or pass until the block is found, then a streak and a note to share', async ({ browser }) => {
   const { deal } = await todaysDeal()
   // Bob played like the miner; Alice follows him.
   const bob = generateSecretKey()
@@ -27,12 +27,14 @@ test('beat the miner: take or pass until the block is found, then the podium and
   const bobFees = await publishMinerRun(bob, encodeMoves(minerMoves(deal)), minerFees(deal))
   const alice = await newPlayer(browser, 'Alice')
   await seed(followsEvent(alice.sk, [getPublicKey(bob)]))
+  // Alice played the last four days.
+  await publishRun(alice.sk, { daysAgo: 1, streak: 4, fees: 1 })
 
   // Beat the Miner is the home page.
   await login(alice)
   const { page } = alice
   await expect(page.getByRole('heading', { name: 'Beat the Miner' })).toBeVisible()
-  await expect(page.getByText('1 friend has played today. Finish your block to see the scores.')).toBeVisible()
+  await expect(page.getByText("1 friend has played today. Finish your block to see today's scores.")).toBeVisible()
 
   // Alice takes everything she can, as the app allows it.
   const rules = minerRules(deal)
@@ -83,19 +85,23 @@ test('beat the miner: take or pass until the block is found, then the podium and
   const ofMiner = percentOf(state.fees, minerFees(deal))
   await expect(page.getByText(`${ofMiner}% of the miner's ${sats(minerFees(deal))}`)).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Your note' })).toHaveValue(new RegExp(`^⛏️ Beat the Miner ${today()}, block [\\d,]+: ${sats(state.fees)}, ${ofMiner}% of the miner\\n`))
+  await expect(page.getByRole('textbox', { name: 'Your note' })).toHaveValue(/\n🔥 5-day streak\n/)
+  await expect(page.getByRole('textbox', { name: 'Your note' })).toHaveValue(/ #beattheminer$/)
   await page.getByRole('button', { name: 'Not now' }).click()
+  await expect(page.getByText('🔥 5-day streak', { exact: true })).toBeVisible()
 
-  // Published, and ranked with Bob.
-  const [first, second] = state.fees >= bobFees ? [['You', state.fees], ['Bob', bobFees]] : [['Bob', bobFees], ['You', state.fees]]
-  await expect(page.getByRole('button', { name: `1. ${first[0]}: ${sats(first[1] as number)}` })).toBeVisible()
-  await expect(page.getByRole('button', { name: `2. ${second[0]}: ${sats(second[1] as number)}` })).toBeVisible()
+  // Published (the note is offered once it is), with no standings on the result screen.
+  await expect(page.getByLabel('Standings')).toHaveCount(0)
   const relay = await Relay.connect(RELAY)
   const runs = await new Promise<{ content: string; tags: string[][] }[]>((resolve) => {
     const found: { content: string; tags: string[][] }[] = []
-    const sub = relay.subscribe([{ kinds: [1953], authors: [alice.pubkey] }], { onevent: (e) => found.push(e), oneose: () => (sub.close(), resolve(found)) })
+    const sub = relay.subscribe([{ kinds: [1953], authors: [alice.pubkey], '#l': [today()] }], { onevent: (e) => found.push(e), oneose: () => (sub.close(), resolve(found)) })
   })
   relay.close()
   expect(runs.map((r) => JSON.parse(r.content).moves)).toEqual([encodeMoves(moves)])
   expect(runs[0].tags).toContainEqual(['score', String(state.fees)])
+  expect(runs[0].tags).toContainEqual(['streak', '5'])
+  // Bob is told only if Alice beat him.
+  expect(runs[0].tags.some((t) => t[0] === 'p' && t[1] === getPublicKey(bob))).toBe(state.fees > bobFees)
   expectNoErrors(alice)
 })

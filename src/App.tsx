@@ -5,7 +5,6 @@ import { readRelays, useRelays } from './stores/relays'
 import { useProfiles } from './stores/profiles'
 import { mirrorToHome } from './lib/nostr/mirror'
 import { DISCOVERY_RELAYS } from './lib/nostr/pool'
-import { useDailyWatcher } from './hooks/useDailyWatcher'
 import { Background } from './components/Background'
 import { Toaster } from './components/Toaster'
 import { SignerWaiting } from './components/SignerWaiting'
@@ -17,12 +16,13 @@ const page = <K extends string>(load: () => Promise<Record<K, React.ComponentTyp
   lazy(() => load().then((m) => ({ default: m[name] })))
 const LoginPage = page(() => import('./pages/Login'), 'LoginPage')
 const UnlockPage = page(() => import('./pages/Unlock'), 'UnlockPage')
-const DailyPage = page(() => import('./pages/Daily'), 'DailyPage')
 const MinerPage = page(() => import('./pages/Miner'), 'MinerPage')
-const GroupsPage = page(() => import('./pages/Groups'), 'GroupsPage')
+const SocialPage = page(() => import('./pages/Social'), 'SocialPage')
+const LeaguesPage = page(() => import('./pages/Leagues'), 'LeaguesPage')
+const LeaguePage = page(() => import('./pages/Leagues'), 'LeaguePage')
 const ProfilePage = page(() => import('./pages/Profile'), 'ProfilePage')
 const RelaysPage = page(() => import('./pages/Relays'), 'RelaysPage')
-const NotificationsPage = page(() => import('./pages/Notifications'), 'NotificationsPage')
+const RemindersPage = page(() => import('./pages/Reminders'), 'RemindersPage')
 const SpriteShopPage = page(() => import('./pages/SpriteShop'), 'SpriteShopPage')
 // The legal pages take a prop (standalone, before logging in), so they're lazy-loaded with their own types.
 const TermsPage = lazy(() => import('./pages/Legal').then((m) => ({ default: m.TermsPage })))
@@ -62,8 +62,6 @@ export default function App() {
     }
   }, [status, pubkey])
 
-  useDailyWatcher()
-
   return (
     <BrowserRouter>
       <Background />
@@ -83,10 +81,14 @@ export default function App() {
           <Routes>
             <Route element={<Layout />}>
               <Route index element={<MinerPage />} />
-              <Route path="daily-deal" element={<DailyPage />} />
-              <Route path="groups" element={<GroupsPage />} />
+              <Route path="social" element={<SocialPage />} />
+              <Route path="leagues" element={<LeaguesPage />} />
+              <Route path="leagues/:id" element={<LeaguePage />} />
+              {/* Old address: groups are leagues now. */}
+              <Route path="groups" element={<Navigate to="/leagues" replace />} />
               <Route path="sprites" element={<SpriteShopPage />} />
-              <Route path="notifications" element={<NotificationsPage />} />
+              <Route path="reminders" element={<RemindersPage />} />
+              <Route path="notifications" element={<Navigate to="/reminders" replace />} />
               <Route path="relays" element={<RelaysPage />} />
               <Route path="profile" element={<ProfilePage />} />
               <Route path="terms" element={<TermsPage />} />

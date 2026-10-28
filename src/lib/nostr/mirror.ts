@@ -4,7 +4,7 @@ import { HOME_RELAY, pool } from './pool'
 /**
  * The player's own events Silvamor copies to the home relay: profile, follow list and relay
  * list. They're already signed, so copying needs no new signature, and the home relay then
- * has everything leaderboards and notifications need without asking other relays.
+ * has everything leaderboards and streak reminders need without asking other relays.
  */
 export const MIRRORED_KINDS = [0, 3, 10002]
 

@@ -13,17 +13,10 @@ import { useRelays, writeRelays } from '../stores/relays'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { publishTo } from '../lib/nostr/pool'
 import type { Block } from '../lib/bitcoin'
-import { fetchDayBlock, untilNextDeal } from '../games/dailydeal/daily'
+import { fetchDayBlock, untilNextDay } from '../games/day'
 
-// What Silvamor's daily games share: waiting for the day's seed block, the leaderboard of people
-// you follow and your groups, and the offer to share your result as a note.
-
-/** A run that counts, as leaderboards need it. */
-export interface RankedRun {
-  author: string
-  score: number
-  createdAt: number
-}
+// What Silvamor's daily games share: waiting for the day's seed block, ranked boards (podium or
+// list), and the offer to share your result as a note.
 
 /**
  * Finds the day's seed block (the first Bitcoin block after midnight UTC), then shows `children`
@@ -76,7 +69,7 @@ export function NextDay({ what }: { what: string }) {
     const timer = setInterval(() => setNow(new Date()), 30_000)
     return () => clearInterval(timer)
   }, [])
-  const minutes = Math.ceil(untilNextDeal(now) / 60_000)
+  const minutes = Math.ceil(untilNextDay(now) / 60_000)
   return (
     <p className="text-sm text-white/50">
       A new {what} in {Math.floor(minutes / 60)}h {minutes % 60}m
@@ -84,16 +77,19 @@ export function NextDay({ what }: { what: string }) {
   )
 }
 
-/** Offers to post the result as a public note on the player's own relays, editable first. */
-export function SharePrompt({ open, text, onClose }: { open: boolean; text(): string; onClose(): void }) {
+/**
+ * Offers to post the result as a public note on the player's own relays, editable first. The note
+ * carries `hashtag` as a `t` tag too, so the Social feed finds it however the text is edited.
+ */
+export function SharePrompt({ open, text, hashtag, onClose }: { open: boolean; text(): string; hashtag: string; onClose(): void }) {
   return (
     <Modal open={open} onClose={onClose}>
-      {open && <ShareForm initial={text()} onClose={onClose} />}
+      {open && <ShareForm initial={text()} hashtag={hashtag} onClose={onClose} />}
     </Modal>
   )
 }
 
-function ShareForm({ initial, onClose }: { initial: string; onClose(): void }) {
+function ShareForm({ initial, hashtag, onClose }: { initial: string; hashtag: string; onClose(): void }) {
   const { signer } = useSigner()
   const relays = useRelays((s) => s.relays)
   const [note, setNote] = useState(initial)
@@ -102,7 +98,7 @@ function ShareForm({ initial, onClose }: { initial: string; onClose(): void }) {
   const post = async () => {
     setPosting(true)
     try {
-      const event = await signer.signEvent({ kind: 1, created_at: Math.floor(Date.now() / 1000), tags: [], content: note.trim() })
+      const event = await signer.signEvent({ kind: 1, created_at: Math.floor(Date.now() / 1000), tags: [['t', hashtag]], content: note.trim() })
       // Silvamor's relay doesn't keep notes, so this only reaches the player's own relays.
       const ok = await publishTo(writeRelays(relays), event).catch(() => {
         throw new Error("None of your relays took the note. Add a relay you write to on the Relays page (Silvamor's relay doesn't keep notes).")
@@ -138,65 +134,54 @@ function ShareForm({ initial, onClose }: { initial: string; onClose(): void }) {
   )
 }
 
-/**
- * Today's scores among the people you follow, or one of your groups, you included: a podium, then
- * everyone else. `format` writes a score; `streakOf` gives a run's streak, for games that have them.
- */
-export function Leaderboard<R extends RankedRun>({
-  runs,
-  me,
-  follows,
-  groups,
-  format = (n) => n.toLocaleString(),
-  streakOf,
-}: {
-  runs: Map<string, R>
-  me: string
-  follows: string[]
-  groups: { id: string; title: string; members: string[] }[]
-  format?(score: number): string
-  streakOf?(run: R): number
-}) {
-  const tabs = [{ id: 'following', title: 'Following', members: follows }, ...[...groups].sort((a, b) => a.title.localeCompare(b.title))]
-  const [tab, setTab] = useState('following')
-  const [viewing, setViewing] = useState<string | null>(null)
-  const members = new Set([me, ...(tabs.find((t) => t.id === tab) ?? tabs[0]).members])
-  const rows = [...runs.values()].filter((r) => members.has(r.author)).sort((a, b) => b.score - a.score || a.createdAt - b.createdAt)
-  const streak = (run: R) => streakOf?.(run) ?? 1
+/** A ranked player: who, and what they're ranked by, already written ("12,345 sats", "🔥 9 days"). */
+export interface Ranked {
+  author: string
+  value: string
+  streak?: number
+}
 
+/**
+ * The top three on a podium (gold, silver, bronze, with their sprites), then everyone else as a
+ * list. Tapping a player opens their profile, to tip them.
+ */
+export function PodiumBoard({ rows, me, empty }: { rows: Ranked[]; me: string; empty: string }) {
+  const [viewing, setViewing] = useState<string | null>(null)
   return (
-    <Card className="flex flex-col gap-3">
-      <h2 className="text-sm font-semibold tracking-wider text-white/50 uppercase">Today's scores</h2>
-      <div className="flex gap-1 overflow-x-auto" role="tablist">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={t.id === tab}
-            onClick={() => setTab(t.id)}
-            className={`shrink-0 rounded-xl px-3 py-1.5 text-sm font-semibold ${t.id === tab ? 'bg-white/10 text-white' : 'text-white/50 hover:text-white'}`}
-          >
-            {t.title}
-          </button>
-        ))}
-      </div>
+    <div className="flex flex-col gap-3">
+      {rows.length === 0 && <p className="py-6 text-center text-sm text-white/45">{empty}</p>}
       <ol className="grid grid-cols-3 items-end gap-2 pt-2" aria-label="Podium">
-        {rows.slice(0, 3).map((run, i) => (
-          <li key={run.author} className={`row-start-1 ${PLACES[i].column}`}>
-            <Step run={run} place={PLACES[i]} me={run.author === me} onOpen={setViewing} streak={streak(run)} format={format} />
+        {rows.slice(0, 3).map((row, i) => (
+          <li key={row.author} className={`row-start-1 ${PLACES[i].column}`}>
+            <Step row={row} place={PLACES[i]} me={row.author === me} onOpen={setViewing} />
           </li>
         ))}
       </ol>
       {rows.length > 3 && (
         <ol className="flex flex-col gap-1.5" aria-label="Everyone else">
-          {rows.slice(3).map((run, i) => (
-            <ScoreRow key={run.author} rank={i + 4} run={run} me={run.author === me} onOpen={setViewing} streak={streak(run)} format={format} />
+          {rows.slice(3).map((row, i) => (
+            <ScoreRow key={row.author} rank={i + 4} author={row.author} me={row.author === me} onOpen={setViewing} value={row.value} streak={row.streak ?? 1} />
           ))}
         </ol>
       )}
-      {rows.length <= 1 && <p className="text-center text-sm text-white/45">Nobody else here has played today yet.</p>}
       <PlayerSheet pubkey={viewing} tipping onClose={() => setViewing(null)} />
-    </Card>
+    </div>
+  )
+}
+
+/** Players ranked as a list, e.g. a league's standings. Tapping a player opens their profile. */
+export function RankedList({ rows, me, empty }: { rows: Ranked[]; me: string; empty: string }) {
+  const [viewing, setViewing] = useState<string | null>(null)
+  if (rows.length === 0) return <p className="py-6 text-center text-sm text-white/45">{empty}</p>
+  return (
+    <>
+      <ol className="flex flex-col gap-1.5" aria-label="Standings">
+        {rows.map((row, i) => (
+          <ScoreRow key={row.author} rank={i + 1} author={row.author} me={row.author === me} onOpen={setViewing} value={row.value} streak={row.streak ?? 1} />
+        ))}
+      </ol>
+      <PlayerSheet pubkey={viewing} tipping onClose={() => setViewing(null)} />
+    </>
   )
 }
 
@@ -207,37 +192,36 @@ const PLACES = [
   { rank: 3, column: 'col-start-3', height: 'h-12', block: 'bg-tangerine/80 text-night-900', sprite: 72 },
 ]
 
-type RowProps = { run: RankedRun; me: boolean; onOpen(pubkey: string): void; streak: number; format(score: number): string }
-
-function Step({ run, place, me, onOpen, streak, format }: RowProps & { place: (typeof PLACES)[number] }) {
-  const sprite = usePlayerSprite(run.author)
-  const name = useDisplayName(run.author)
+function Step({ row, place, me, onOpen }: { row: Ranked; place: (typeof PLACES)[number]; me: boolean; onOpen(pubkey: string): void }) {
+  const sprite = usePlayerSprite(row.author)
+  const name = useDisplayName(row.author)
   return (
-    <button onClick={() => onOpen(run.author)} aria-label={`${place.rank}. ${me ? 'You' : name}: ${format(run.score)}`} className="flex w-full min-w-0 flex-col items-center gap-1">
+    <button onClick={() => onOpen(row.author)} aria-label={`${place.rank}. ${me ? 'You' : name}: ${row.value}`} className="flex w-full min-w-0 flex-col items-center gap-1">
       <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.15 * (3 - place.rank), type: 'spring', stiffness: 300, damping: 18 }}>
         <SpriteView sprite={sprite} mood={place.rank === 1 ? 'win' : 'happy'} size={place.sprite} />
       </motion.div>
       <span className="w-full truncate text-center text-sm font-semibold">{me ? 'You' : name}</span>
-      <span className="font-display text-lemon">{format(run.score)}</span>
-      <Streak days={streak} />
+      <span className="font-display text-lemon">{row.value}</span>
+      {row.streak !== undefined && <Streak days={row.streak} />}
       <span className={`flex w-full items-start justify-center rounded-t-xl pt-1 text-2xl font-display ${place.height} ${place.block}`}>{place.rank}</span>
     </button>
   )
 }
 
-function ScoreRow({ rank, run, me, onOpen, streak, format }: RowProps & { rank: number }) {
-  const name = useDisplayName(run.author)
+function ScoreRow({ rank, author, me, onOpen, value, streak }: { rank: number; author: string; me: boolean; onOpen(pubkey: string): void; value: string; streak: number }) {
+  const name = useDisplayName(author)
   return (
     <li>
       <button
-        onClick={() => onOpen(run.author)}
+        onClick={() => onOpen(author)}
+        aria-label={`${rank}. ${me ? 'You' : name}: ${value}`}
         className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left ${me ? 'bg-grape/20 ring-1 ring-grape/40' : 'bg-night-950/60 hover:bg-night-950/80'}`}
       >
         <span className="w-6 text-center font-display text-white/50">{rank}</span>
-        <Avatar pubkey={run.author} className="size-8 text-xs" />
+        <Avatar pubkey={author} className="size-8 text-xs" />
         <span className="min-w-0 flex-1 truncate font-medium">{me ? 'You' : name}</span>
         <Streak days={streak} />
-        <span className="font-display text-lemon">{format(run.score)}</span>
+        <span className="font-display text-lemon">{value}</span>
       </button>
     </li>
   )

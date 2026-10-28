@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { HOME_RELAY, pool } from '../lib/nostr/pool'
-import { DAILY_RUN_KIND, parseRun, previousDay } from '../lib/nostr/dailyRuns'
+import { MINER_RUN_KIND, parseMinerRun } from '../lib/nostr/minerRuns'
+import { previousDay } from '../games/day'
 
 /**
  * The streaks these players' runs the day before `day` claim, by player. Only from Silvamor's
@@ -18,11 +19,11 @@ export function useStreaks(day: string, authors: string[]) {
     const list = authorsKey.split(',')
     const yesterday = previousDay(day)
     const chunks = Array.from({ length: Math.ceil(list.length / 500) }, (_, i) => list.slice(i * 500, i * 500 + 500))
-    Promise.all(chunks.map((authors) => pool.querySync([HOME_RELAY], { kinds: [DAILY_RUN_KIND], '#l': [yesterday], authors }, { maxWait: 6000 }))).then(
+    Promise.all(chunks.map((authors) => pool.querySync([HOME_RELAY], { kinds: [MINER_RUN_KIND], '#l': [yesterday], authors }, { maxWait: 6000 }))).then(
       (results) => {
         if (cancelled) return
         const found = new Map<string, number[]>()
-        for (const run of results.flat().map(parseRun)) {
+        for (const run of results.flat().map(parseMinerRun)) {
           if (run?.day === yesterday) found.set(run.author, [...(found.get(run.author) ?? []), run.streak])
         }
         setStreaks(found)

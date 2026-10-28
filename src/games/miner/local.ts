@@ -1,3 +1,5 @@
+import type { Block } from '../../lib/bitcoin'
+import { fetchDeal } from './deal'
 import type { MinerDeal } from './rules'
 
 // What this browser keeps for Beat the Miner: the day's deal (the same for everyone, so it isn't
@@ -21,6 +23,15 @@ export function saveDeal(blockHash: string, deal: MinerDeal) {
   } catch {
     // Storage full or blocked: it's read from the block sources again next time.
   }
+}
+
+/** The day's deal, from this browser if it has it, else read from the block sources and kept. */
+export async function dealFor(day: string, block: Block): Promise<MinerDeal> {
+  const saved = loadDeal(block.hash)
+  if (saved) return saved
+  const deal = await fetchDeal(day, block)
+  saveDeal(block.hash, deal)
+  return deal
 }
 
 export function loadMoves(pubkey: string, seed: string): string {

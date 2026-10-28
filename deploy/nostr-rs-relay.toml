@@ -24,12 +24,11 @@ event_kind_allowlist = [
   3,      # follow lists: who's on each player's leaderboard and who they hear about
   5,      # deleting a group
   62,     # requests to vanish: "Delete my data" on the Profile page (the guard does the deleting)
-  1952,   # Daily Deal runs
   1953,   # Beat the Miner runs
   1984,   # sprite reports
   9735,   # zap receipts for tips (published by the recipient's Lightning provider)
   10002,  # relay lists
-  30000,  # groups (NIP-51 follow sets)
+  30000,  # leagues (NIP-51 follow sets)
   30004,  # featured sprites
   30078,  # sprite choice and private settings (other apps use this kind too)
   30951,  # sprites

@@ -1,7 +1,7 @@
 # Silvamor sprite standard (v1)
 
-A sprite is the little character that cheers a player on during their Daily Deal run and stands
-on the leaderboard podium. Anyone can draw one: it's a single PNG sheet plus a short JSON manifest, published on
+A sprite is the little character that cheers a player on during their game and stands
+on the leaderboard podiums. Anyone can draw one: it's a single PNG sheet plus a short JSON manifest, published on
 Nostr so every client shows the same sprite.
 
 Start from the [template sheet](../public/sprites/template.png) (128 px frames, labelled rows) or
@@ -27,10 +27,10 @@ guides only: hide them before exporting, so the finished sheet has a transparent
 | Name       | Kind     | Plays when                                   | If missing        |
 |------------|----------|----------------------------------------------|-------------------|
 | `idle`     | mood     | Nothing in particular is happening           | **required**      |
-| `thinking` | mood     | The player is picking cards                  | idle              |
-| `happy`    | mood     | A strong hand (three of a kind or better); 2nd or 3rd on the podium | idle |
-| `sad`      | mood     | A lone high card                             | idle              |
-| `win`      | mood     | The run is over; 1st on the podium           | happy, then idle  |
+| `thinking` | mood     | The player is weighing up a transaction      | idle              |
+| `happy`    | mood     | A rich transaction taken; 2nd or 3rd on a podium | idle |
+| `sad`      | mood     | The block is full, or the miner won          | idle              |
+| `win`      | mood     | You beat the miner; 1st on a podium          | happy, then idle  |
 | `lose`     | mood     | (reserved)                                   | sad, then idle    |
 | `draw`     | mood     | (reserved)                                   | idle              |
 | `strike`   | one-shot | (reserved)                                   | skipped           |

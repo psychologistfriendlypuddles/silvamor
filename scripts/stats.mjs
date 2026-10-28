@@ -1,21 +1,22 @@
-// Silvamor stats from the public relays: Daily Deal players per day, and each day's top score.
+// Silvamor stats from the relays: Beat the Miner players per day, and each day's top fees.
 // Usage: npm run stats                      (last 30 days)
 //        npm run stats -- --days 7
 //        npm run stats -- --json            (machine-readable)
 //        npm run stats -- --relays wss://relay.damus.io,wss://nos.lol
 //
-// A player counts once a day: whoever published a run (kind 1952) labelled with that day.
+// A player counts once a day: whoever published a run (kind 1953) labelled with that day.
 // Scores are as claimed, not replayed (the app checks them; this is only a head count).
 // Relays may drop old events, so this is reliable for recent weeks rather than all time.
 import { fileURLToPath } from 'node:url'
 import { SimplePool } from 'nostr-tools/pool'
 
-export const DEFAULT_RELAYS = ['wss://relay.silvamor.com', 'wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net']
+// Every run goes to Silvamor's relay, whatever relays a player uses.
+export const DEFAULT_RELAYS = ['wss://relay.silvamor.com']
 
-const LABEL = 'silvamor/dailydeal'
+const LABEL = 'silvamor/miner'
 const day = (seconds) => new Date(seconds * 1000).toISOString().slice(0, 10)
 
-/** Daily Deal players in the last `days` UTC days (today included), per day. */
+/** Beat the Miner players in the last `days` UTC days (today included), per day. */
 export async function collectStats({ relays = DEFAULT_RELAYS, days = 30, now = Math.floor(Date.now() / 1000), maxWait = 8000 } = {}) {
   // Whole UTC days: from the start of the first day to now.
   const since = Math.floor(now / 86400) * 86400 - (days - 1) * 86400
@@ -23,7 +24,7 @@ export async function collectStats({ relays = DEFAULT_RELAYS, days = 30, now = M
   for (let t = since; t <= now; t += 86400) dayList.push(day(t))
   const pool = new SimplePool()
   try {
-    const runs = await pool.querySync(relays, { kinds: [1952], '#l': dayList }, { maxWait })
+    const runs = await pool.querySync(relays, { kinds: [1953], '#l': dayList }, { maxWait })
     const perDay = dayList.map((d) => {
       const players = new Map() // pubkey -> their first run's score
       for (const e of runs.sort((a, b) => a.created_at - b.created_at)) {
@@ -42,9 +43,9 @@ export async function collectStats({ relays = DEFAULT_RELAYS, days = 30, now = M
 
 function print(stats) {
   const bar = (n, max) => '█'.repeat(max ? Math.round((n / max) * 30) : 0)
-  console.log(`\nSilvamor Daily Deal, ${stats.from} to ${stats.to} (UTC)`)
+  console.log(`\nSilvamor Beat the Miner, ${stats.from} to ${stats.to} (UTC)`)
   console.log(`${stats.players} different players\n`)
-  console.log('Players per day (top score)')
+  console.log('Players per day (top fees, sats)')
   const max = Math.max(0, ...stats.perDay.map((d) => d.players))
   for (const d of stats.perDay) console.log(`  ${d.day}  ${String(d.players).padStart(5)}  ${String(d.topScore).padStart(7)}  ${bar(d.players, max)}`)
   console.log()
