@@ -92,27 +92,24 @@ export class LocalKeySigner implements AppSigner {
 // --- NIP-46: remote signer (Amber, nsec.app, nsecBunker, ...) ---
 
 /**
- * Permissions asked for when connecting, per event kind, so signer apps can offer
- * "always allow" for Silvamor's events instead of asking every time.
+ * Permissions asked for when connecting, per event kind, so signer apps can offer "always allow"
+ * for what Silvamor does all the time. Not for anything that would hurt the player if this device's
+ * signer key (kept in its storage) were taken: signer apps should ask about those every time.
  */
 export const NIP46_PERMS = [
   'get_public_key',
-  'sign_event:0', // profile
-  'sign_event:1', // sharing your result as a note
-  'sign_event:5', // delete a league
   'sign_event:1953', // Block of the Day runs
   'sign_event:1984', // report a sprite
   'sign_event:9734', // zap requests: tipping a player or an artist
-  'sign_event:10002', // relay list
-  'sign_event:24242', // Blossom upload authorization
   'sign_event:27235', // signed requests to the push service (NIP-98)
   'sign_event:30000', // leagues
   'sign_event:30004', // featured sprites
   'sign_event:30078', // sprite choice and private settings
   'sign_event:30951', // publishing a sprite
-  'nip44_encrypt', // invite-link secrets and settings, encrypted to yourself
-  'nip44_decrypt',
-  // Not 62 (deleting your data from Silvamor's relay): signer apps should ask about that every time.
+  'nip44_encrypt', // settings and the wallet link, encrypted to yourself
+  // Asked every time: a profile (0), a note (1), a deletion (5), a relay list (10002) or an upload (24242)
+  // speaks for the player all over Nostr; decrypting (nip44_decrypt) could open their private messages;
+  // and a request to vanish (62) deletes their data from Silvamor's relay.
 ]
 
 export class Nip46Signer implements AppSigner {

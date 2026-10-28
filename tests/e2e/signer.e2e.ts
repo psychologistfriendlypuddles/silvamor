@@ -74,8 +74,11 @@ test('logging in with a signer app, and a hint while it waits for approval', asy
   await page.goto('/')
   await page.getByRole('button', { name: /Signer app/ }).click()
   const uri = await page.locator('a[href^="nostrconnect:"]').getAttribute('href')
-  // The app asks for permission per event kind, so the signer can offer "always allow".
-  expect(new URL(uri!).searchParams.get('perms')).toContain('sign_event:1953')
+  // The app asks for permission per event kind, so the signer can offer "always allow": for runs, not
+  // for anything that would speak for the player elsewhere or read their messages.
+  const perms = new URL(uri!).searchParams.get('perms')!.split(',')
+  expect(perms).toContain('sign_event:1953')
+  for (const risky of ['sign_event:0', 'sign_event:1', 'sign_event:5', 'sign_event:10002', 'sign_event:24242', 'nip44_decrypt']) expect(perms).not.toContain(risky)
   await signer.approve(uri!)
   await expect(page.getByRole('link', { name: 'silvamor home' }).first()).toBeVisible({ timeout: 15_000 })
 
