@@ -6,9 +6,10 @@ A small companion to relay.silvamor.com (nostr-rs-relay). It does these jobs:
   `nauthz` API) before storing it. It admits only Silvamor's event kinds, and gives each a size
   cap and a shape check (`src/policy.ts`), so junk of an allowed kind is refused too. For example:
   Block of the Day runs must replay on the day's transactions to the fees they claim (the app's own
-  check, `../src/lib/nostr/minerRuns.ts`), and a run claiming an N-day streak needs the player's run
-  for the day before, stored here, to claim N − 1 (the guard reads it from the relay's database;
-  [docs/PROTOCOL.md](../docs/PROTOCOL.md), "Streaks"). Runs also have to
+  check, `../src/lib/nostr/minerRuns.ts`) and arrive as they're made (within 30 minutes, on their
+  day or before 02:00 UTC the day after), so a past day can't be played later; a run claiming an
+  N-day streak needs the player's run for the day before, stored here, to claim N − 1 (the guard
+  reads it from the relay's database; [docs/PROTOCOL.md](../docs/PROTOCOL.md), "Streaks"). Runs also have to
   stay under 8 KB; reports must be about a sprite, with a
   note of at most 83 characters and 1 KB in all (reports are kept for good); kind-30078 settings
   must be Silvamor's own (`d` tag starting `silvamor/`); sprites must be valid Silvamor sprites.
@@ -30,10 +31,21 @@ A small companion to relay.silvamor.com (nostr-rs-relay). It does these jobs:
   how the guard remembers, and it holds only the key and the time. This happens even with
   `DRY_RUN=true`, because the player asked for it. Without `RELAY_DB` the guard refuses requests
   to vanish, so the player is told nothing was deleted.
+- **Sweep.** While the guard can't be reached (restarting, say), the relay stores events unchecked.
+  So every minute the guard checks the runs stored in the last two hours again, each as it reached
+  the relay (its `first_seen` time), and deletes the ones it would have refused: made on another
+  day, sent long after they were made, not replaying to their fees, or claiming a streak the day
+  before doesn't back, which also catches the streaks that rested on a deleted run. The first sweep
+  after the guard starts checks every stored run, which covers any time it was down and clears out
+  runs from before this check existed. Runs whose day it can't read yet are left for the next sweep.
 
-If the guard is down, the relay admits events (still only the kinds its own allowlist accepts),
-so an outage loosens the rules but loses nothing. If no Bitcoin block source answers, runs are
-admitted unchecked for the same reason; clients check every run anyway.
+The boards take this relay's word for runs, so the guard refuses any run it can't check yet (no
+Bitcoin block source answering, the day's block not mined yet, or a bug), and the app offers to
+publish it again. Since the relay waits for every answer, each day's block and deal are read once,
+one lookup at a time, and no run waits on that for more than 2.5 seconds. If the guard itself is
+down, the relay admits events unchecked (still only the kinds its own allowlist accepts): nothing is
+lost, and a run made up meanwhile stays on the boards only until the sweep a minute after the guard
+is back.
 
 ## Run it
 
@@ -57,8 +69,9 @@ docker compose -f deploy/compose.yaml up -d --build
 - The guard publishes no ports: the relay reaches it as `http://guard:50051` on the compose
   network, and nothing else can.
 - Start with `DRY_RUN=true`: the log shows how many events clean-up *would* delete
-  (`cleanup (dry run, nothing deleted): kind 1952: 0, kind 1953: 0, kind 9735: 0`). When the numbers look right,
-  set `DRY_RUN=false`. Back up `nostr.db` first.
+  (`cleanup (dry run, nothing deleted): kind 1952: 0, kind 1953: 0, kind 9735: 0`), and which runs
+  the sweep would (`sweep (dry run, nothing deleted): 120 runs checked, 0 failed`). When the numbers
+  look right, set `DRY_RUN=false`. Back up `nostr.db` first.
 
 ## Settings (environment variables)
 
@@ -70,11 +83,12 @@ docker compose -f deploy/compose.yaml up -d --build
 | `PER_IP_MINUTE` | `60` | Events one IP address may publish per minute, whatever keys it uses |
 | `PER_IP_DAY` | `2000` | Events one IP address may publish per day, whatever keys it uses |
 | `RELAY_URL` | `wss://relay.silvamor.com` | This relay's address, which requests to vanish must name (or `ALL_RELAYS`) |
-| `RELAY_DB` | none | The relay's SQLite file. Without it, there's no clean-up and no requests to vanish |
+| `RELAY_DB` | none | The relay's SQLite file. Without it, there's no clean-up, no sweep and no requests to vanish |
 | `RETENTION` | `1952:30,1953:30,9735:30` | What to delete, as `kind:days` pairs: by default runs and tip receipts after 30 days, as the privacy policy promises (1952 clears the last runs of the retired Daily Deal). Change it only together with the policy |
-| `DRY_RUN` | `true` | `false` to actually delete; otherwise clean-up only counts |
+| `DRY_RUN` | `true` | `false` to actually delete; otherwise clean-up and the sweep only count |
 
-Clean-up runs a minute after start and then every 24 hours. It's written against nostr-rs-relay's
-SQLite schema (database version 18) and refuses older databases. It doesn't work with the relay's
+Clean-up runs a minute after start and then every 24 hours; the sweep, a minute after start and
+then every minute. Both are written against nostr-rs-relay's SQLite schema (database version 18)
+and refuse older databases. Neither works with the relay's
 experimental Postgres engine. Profiles, follow lists and other replaceable events need no
 clean-up: the relay keeps only the newest of each.

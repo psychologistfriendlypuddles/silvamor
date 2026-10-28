@@ -13,7 +13,7 @@ import { useGroups } from '../stores/groups'
 import { gameWriteRelays } from '../stores/relays'
 import { useLoadGroups } from '../hooks/useLoadGroups'
 import { useGameRuns } from '../hooks/useGameRuns'
-import { publishTo } from '../lib/nostr/pool'
+import { HOME_RELAY, pool, publishTo } from '../lib/nostr/pool'
 import { MINER_RUN_KIND, buildMinerRun, confirmedStreak, countedMinerRuns, nextStreak, parseMinerRun, type MinerRun } from '../lib/nostr/minerRuns'
 import { useStreaks } from '../hooks/useStreaks'
 import type { Block } from '../lib/bitcoin'
@@ -115,6 +115,21 @@ const play = (deal: MinerDeal, moves: unknown[]) => {
   return moves.reduce<MinerState>((s, m) => rules.apply(s, rules.parseMove(m)), rules.init())
 }
 
+/**
+ * Publishes a run to Silvamor's relay, which has to take it (boards and streaks read that relay
+ * alone), and only then to the player's own relays: a copy only there would look published when it
+ * isn't, and a reload wouldn't try again.
+ */
+async function publishRun(event: Event) {
+  try {
+    await pool.publish([HOME_RELAY], event, { maxWait: 10_000 })[0]
+  } catch (err) {
+    const reason = String(err instanceof Error ? err.message : err).replace(/^blocked: /, '')
+    throw new Error(`${HOME_RELAY.replace(/^wss?:\/\//, '')} didn't take your block: ${reason}`, { cause: err })
+  }
+  void publishTo(gameWriteRelays().filter((r) => r !== HOME_RELAY), event).catch(() => {})
+}
+
 function Run({ day, block, deal }: { day: string; block: Block; deal: MinerDeal }) {
   const { signer, pubkey } = useSigner()
   useLoadGroups()
@@ -123,7 +138,7 @@ function Run({ day, block, deal }: { day: string; block: Block; deal: MinerDeal 
   const followsLoaded = useGroups((s) => s.loaded)
   const everyone = useMemo(() => [pubkey, ...follows, ...Object.values(groups).flatMap((g) => g.members)], [pubkey, follows, groups])
   const count = useCallback(
-    (events: Event[]) => countedMinerRuns(events.map(parseMinerRun).filter((r): r is MinerRun => r !== null && r.day === day), block, deal, null),
+    (events: Event[]) => countedMinerRuns(events.map(parseMinerRun).filter((r): r is MinerRun => r !== null && r.day === day), block, deal),
     [day, block, deal],
   )
   const { runs, loaded, add } = useGameRuns(MINER_RUN_KIND, day, everyone, count)
@@ -146,7 +161,7 @@ function Run({ day, block, deal }: { day: string; block: Block; deal: MinerDeal 
     try {
       const streak = nextStreak(yesterday.streaks.get(pubkey))
       const event = await signer.signEvent(buildMinerRun({ day, block, moves, score: state.fees, streak }))
-      await publishTo(gameWriteRelays(), event)
+      await publishRun(event)
       add(event)
       setPublishing('idle')
       if (!shareOffered('miner', pubkey, day)) setSharing(true)

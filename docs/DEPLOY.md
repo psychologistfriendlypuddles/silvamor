@@ -106,13 +106,15 @@ the guard has a Docker health check.
 | Event-kind allowlist (relay config) | Only Silvamor's 12 kinds are stored: 0, 3, 5, 62, 1953, 1984, 9735, 10002, 30000, 30004, 30078, 30951. Notes, reactions, DMs and the rest are refused |
 | Size and time limits (relay config) | Events over 256 KB (room for follow lists of about 3,500 people), or dated more than 30 minutes ahead, are refused |
 | `limit_scrapers` (relay config) | Vague "give me everything" queries are refused; every query Silvamor makes is narrow enough |
-| Relay guard: admission | Each kind gets a size cap and a shape check, so junk of an allowed kind is refused too: runs must replay to their score, reports must be about a sprite (notes at most 83 characters, 1 KB in all), settings must be Silvamor's own, sprites must be valid, and so on |
+| Relay guard: admission | Each kind gets a size cap and a shape check, so junk of an allowed kind is refused too: runs must arrive as they're made and replay to their score, reports must be about a sprite (notes at most 83 characters, 1 KB in all), settings must be Silvamor's own, sprites must be valid, and so on |
 | Relay guard: rate limits | 30 events a minute per author; 60 a minute and 2,000 a day per IP address, however many keys it uses (the relay reads each player's real address from the proxy's `X-Real-IP` header) |
 | Relay guard: clean-up | Deletes runs and tip receipts after 30 days, as the privacy policy promises; keeps sprite reports |
 | Relay guard: requests to vanish | "Delete my data" on the Profile page sends a NIP-62 request naming this relay; the guard deletes everything that key published here and refuses those events if they're uploaded again |
+| Relay guard: sweep | Every minute, checks the runs stored in the last two hours again (all of them after it starts) and deletes the ones it would have refused, such as runs stored while it was down |
 
 Check the option names against the sample `config.toml` of the nostr-rs-relay version you run.
-If the guard is down, the relay admits events but still applies its allowlist, so nothing is lost.
+If the guard is down, the relay admits events but still applies its allowlist: nothing is lost, and
+the runs it stored meanwhile are checked by the guard's sweep a minute after it's back.
 Replaceable events (profiles, follow lists, relay lists, leagues, sprites) need no clean-up: the
 relay keeps only the newest of each. Runs are about 2 KB, so without clean-up 10,000 players a day
 add about 7 GB a year.
@@ -147,7 +149,7 @@ the curators set at build time: `VITE_SPRITE_CURATORS=npub1…,npub1…`. Each c
   and is running wide open (no allowlist, no guard); on SELinux hosts that's a missing `z` on the
   mount (`deploy/compose.yaml` has it).
 - `docker compose -f deploy/compose.yaml ps` shows the guard as healthy, and its log shows a
-  `cleanup` line a minute after it starts.
+  `cleanup` line and a `sweep` line a minute after it starts.
 - The privacy policy promises relay.silvamor.com keeps connection records (IP addresses) for no more
   than 30 days. nostr-rs-relay writes them to its log, so make sure that log is gone within 30 days:
   with Docker's default `json-file` driver, logs live until the container is removed, so switch the

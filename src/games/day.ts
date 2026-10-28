@@ -12,6 +12,9 @@ export const dayStart = (day: string) => Date.parse(`${day}T00:00:00Z`) / 1000
 /** The day before `day` (YYYY-MM-DD). */
 export const previousDay = (day: string) => dayOf(new Date((dayStart(day) - 86400) * 1000))
 
+/** Whether `day` is a real date as YYYY-MM-DD: not 2026-02-31, which Date.parse rolls over to March. */
+export const isDay = (day: string) => /^\d{4}-\d{2}-\d{2}$/.test(day) && Number.isFinite(dayStart(day)) && dayOf(new Date(dayStart(day) * 1000)) === day
+
 const blockKey = (day: string) => `silvamor:block:${day}`
 
 /** The day's seed block: the first one mined at or after 00:00 UTC. Null until it's mined. */

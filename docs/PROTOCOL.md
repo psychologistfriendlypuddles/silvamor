@@ -87,8 +87,8 @@ When the block is found, the player publishes their run once:
 `moves` has one letter per transaction offered: `t` (take) or `p` (pass). The NIP-32 label (`l`)
 lets clients ask relays for one day's runs (`#l`). A run counts when:
 - its `block` tag is that day's seed block;
-- its `created_at` is at or after 00:00 UTC on its day, and before the timestamp of the next day's
-  seed block (once that block exists);
+- its `created_at` is on its day: at or after 00:00 UTC, and before 02:00 UTC the next day (a run
+  started just before midnight still counts);
 - its moves replay on the day's transactions to a finished run whose fees are exactly its `score`.
 
 Only each player's first run counts: their valid run with the lowest `created_at` (the lower event id
@@ -97,7 +97,11 @@ every game is fixed once its block is mined, this works on the honour system: no
 runs on another key or offline. Clients hide others' results (whose moves are public) until the
 player has played.
 
-**Boards** read runs from relay.silvamor.com, which replays each run before keeping it. Top Scores
+**Boards** read runs from relay.silvamor.com, which replays each run before keeping it. It takes a
+run only as it's made (its `created_at` within 30 minutes of the relay's clock), so a past day can't
+be played later, and refuses runs it can't check yet; the app then offers to publish again. Runs it
+stored without checking (while its checker was down) are checked within minutes and deleted if they
+fail. Top Scores
 add up each player's counted fees over today, 7 or 21 days (ties go to the earlier first run); Top
 Streaks rank the streaks of runs from today and yesterday (a streak still counts until the day
 after it ends). A league's standings are the same as Top Scores, among its players and the player.

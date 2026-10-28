@@ -12,7 +12,7 @@ import { buildMinerRun } from '../../src/lib/nostr/minerRuns'
 import type { MinerDeal } from '../../src/games/miner/rules'
 import { dayOf, dayStart, previousDay } from '../../src/games/day'
 import { createPolicy } from '../src/policy'
-import { erase, parseRetention, prune, storedStreaks, vanishRequests } from '../src/cleanup'
+import { erase, parseRetention, prune, storedStreaks, sweepRuns, vanishRequests } from '../src/cleanup'
 import { checkHealth, configFromEnv, startGuard } from '../src/server'
 import nauthzProto from '../proto/nauthz.proto?raw'
 
@@ -118,15 +118,17 @@ describe('admission policy', () => {
     expect(await p.decide(sign({ kind: 1952, content: '{}' }))).toEqual({ permit: false, message: "Silvamor's relay doesn't keep kind 1952" })
   })
 
-  it("refuses runs for a day whose block isn't mined, and admits them when no block source answers", async () => {
-    expect((await createPolicy({ relayUrl: HOME, findBlock: async () => null, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 }).decide(run())).permit).toBe(false)
-    const down = createPolicy({ relayUrl: HOME, findBlock: async () => Promise.reject(new Error('offline')), perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
-    expect((await down.decide(run())).permit).toBe(true)
+  it("refuses runs it can't check yet: a day whose block isn't mined, or no block source answering", async () => {
+    const tryAgain = { permit: false, later: true, message: `can't check runs for ${day} yet, try again in a minute` }
+    const unmined = createPolicy({ relayUrl: HOME, findBlock: async () => null, findDeal: async () => deal, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
+    expect(await unmined.decide(run())).toEqual(tryAgain)
+    const down = createPolicy({ relayUrl: HOME, findBlock: async () => Promise.reject(new Error('offline')), findDeal: async () => deal, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
+    expect(await down.decide(run())).toEqual(tryAgain)
   })
 
   it('limits each author to a number of events a minute', async () => {
     let t = 0
-    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 2, perIpMinute: 1000, perIpDay: 100_000, now: () => t })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perMinute: 2, perIpMinute: 1000, perIpDay: 100_000, now: () => t })
     expect((await p.decide(sign({ kind: 3 }))).permit).toBe(true)
     expect((await p.decide(sign({ kind: 3 }))).permit).toBe(true)
     expect(await p.decide(sign({ kind: 3 }))).toEqual({ permit: false, message: "too many events, slow down" })
@@ -141,7 +143,7 @@ describe('limits per IP address', () => {
 
   it('caps one address per minute, however many keys it uses', async () => {
     let t = 0
-    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 100, perIpMinute: 3, perIpDay: 100, now: () => t })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perMinute: 100, perIpMinute: 3, perIpDay: 100, now: () => t })
     for (let i = 0; i < 3; i++) expect((await p.decide(throwaway(), { ip: '203.0.113.7' })).permit).toBe(true)
     expect(await p.decide(throwaway(), { ip: '203.0.113.7' })).toEqual({ permit: false, message: 'too many events, slow down' })
     // Other addresses, and events whose address the relay didn't pass on, aren't affected.
@@ -153,7 +155,7 @@ describe('limits per IP address', () => {
 
   it('caps one address per day', async () => {
     let t = 0
-    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 100, perIpMinute: 100, perIpDay: 5, now: () => t })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perMinute: 100, perIpMinute: 100, perIpDay: 5, now: () => t })
     for (let i = 0; i < 5; i++) {
       t += 120_000
       expect((await p.decide(throwaway(), { ip: '203.0.113.7' })).permit).toBe(true)
@@ -228,7 +230,7 @@ describe('gRPC event admission', () => {
   beforeAll(async () => {
     guard = await startGuard(
       { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perMinute: 100, perIpMinute: 1000, perIpDay: 100_000, relayDb: null, retention: [], dryRun: true },
-      { policy: createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 100, perIpMinute: 2, perIpDay: 100_000 }), log: () => {} },
+      { policy: createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perMinute: 100, perIpMinute: 2, perIpDay: 100_000 }), log: () => {} },
     )
     const def = protoLoader.fromJSON(protobuf.parse(nauthzProto, { keepCase: true }).root.toJSON(), { keepCase: true, longs: Number, enums: Number, defaults: true })
     const { Authorization } = grpc.loadPackageDefinition(def).nauthz as unknown as { Authorization: grpc.ServiceClientConstructor }
@@ -240,9 +242,9 @@ describe('gRPC event admission', () => {
   })
 
   /** Asks the guard about an event, as nostr-rs-relay does. */
-  const admit = (e: Event, ip = '203.0.113.7') =>
+  const admit = (e: Event, ip = '203.0.113.7', via = client) =>
     new Promise<{ decision: number; message?: string }>((resolve, reject) =>
-      client.EventAdmit(
+      via.EventAdmit(
         {
           // Like nostr-rs-relay (Rust), leave out fields at zero: a profile's kind isn't sent at all.
           event: { id: hexToBytes(e.id), pubkey: hexToBytes(e.pubkey), created_at: e.created_at, ...(e.kind ? { kind: e.kind } : {}), content: e.content, tags: e.tags.map((values) => ({ values })), sig: hexToBytes(e.sig) },
@@ -269,6 +271,24 @@ describe('gRPC event admission', () => {
   it("passes on the sender's IP address: a third counted event from it this minute is refused", async () => {
     expect((await admit(sign({ kind: 3 }))).decision).toBe(1)
     expect(await admit(sign({ kind: 3 }))).toMatchObject({ decision: 2, message: 'too many events, slow down' })
+  })
+
+  it('refuses runs and requests to vanish when something goes wrong, and lets other events in', async () => {
+    const broken = await startGuard(
+      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perMinute: 100, perIpMinute: 1000, perIpDay: 100_000, relayDb: null, retention: [], dryRun: true },
+      { policy: { decide: () => Promise.reject(new Error('bug')), recheck: () => Promise.reject(new Error('bug')) }, log: () => {} },
+    )
+    const def = protoLoader.fromJSON(protobuf.parse(nauthzProto, { keepCase: true }).root.toJSON(), { keepCase: true, longs: Number, enums: Number, defaults: true })
+    const { Authorization } = grpc.loadPackageDefinition(def).nauthz as unknown as { Authorization: grpc.ServiceClientConstructor }
+    const via = new Authorization(`127.0.0.1:${broken.port}`, grpc.credentials.createInsecure()) as unknown as typeof client
+    try {
+      expect(await admit(run(), undefined, via)).toMatchObject({ decision: 2, message: 'something went wrong here, try again' })
+      expect((await admit(sign({ kind: 62, tags: [['relay', HOME]] }), undefined, via)).decision).toBe(2)
+      expect((await admit(sign({ kind: 3 }), undefined, via)).decision).toBe(1)
+    } finally {
+      via.close()
+      await broken.close()
+    }
   })
 })
 
@@ -306,14 +326,14 @@ describe('requests to vanish (NIP-62)', () => {
   }
 
   it('admits requests that name this relay or all relays, and refuses ones for other relays', async () => {
-    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
     expect(await p.decide(sign({ kind: 62, tags: [['relay', `${HOME}/`]] }))).toEqual({ permit: true })
     expect(await p.decide(sign({ kind: 62, tags: [['relay', 'ALL_RELAYS']] }))).toEqual({ permit: true })
     expect(await p.decide(sign({ kind: 62, tags: [['relay', 'wss://nos.lol']] }))).toEqual({ permit: false, message: `a request to vanish here names ${HOME}` })
   })
 
   it("refuses a vanished key's older events, and admits newer ones", async () => {
-    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000, vanishedAt: (pk) => (pk === me ? now : undefined) })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000, vanishedAt: (pk) => (pk === me ? now : undefined) })
     expect(await p.decide(sign({ kind: 0, content: '{}', created_at: now - 60 }))).toEqual({ permit: false, message: 'this key asked this relay to delete its events' })
     expect(await p.decide(sign({ kind: 0, content: '{}', created_at: now + 60 }))).toEqual({ permit: true })
   })
@@ -389,6 +409,7 @@ describe('streaks', () => {
     const p = createPolicy({
       relayUrl: HOME,
       findBlock: async () => block,
+      findDeal: async () => deal,
       perMinute: 100,
       perIpMinute: 1000,
       perIpDay: 100_000,
@@ -401,7 +422,7 @@ describe('streaks', () => {
   })
 
   it("doesn't check streaks it can't look up", async () => {
-    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000, streaksOn: () => null })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000, streaksOn: () => null })
     expect(await p.decide(run(0, 9))).toEqual({ permit: true })
   })
 
@@ -429,8 +450,165 @@ describe('streaks', () => {
 })
 
 describe('Block of the Day runs', () => {
-  it("admits runs unchecked when the day's transactions can't be read", async () => {
+  const tryAgain = { permit: false, later: true, message: `can't check runs for ${day} yet, try again in a minute` }
+  const stale ={ permit: false, message: "this run wasn't made just now (is your clock right?)" }
+  const noon = dayStart(day) + 12 * 3600
+  const twoDaysAgo = previousDay(previousDay(day))
+  /** The policy with its clock at `seconds` (unix). */
+  const policyAt = (seconds: number) =>
+    createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000, now: () => seconds * 1000 })
+  /** `run()` made at `at` (unix seconds), for `onDay`. */
+  const runAt = (at: number, onDay = day) => finalizeEvent({ ...buildMinerRun({ day: onDay, block, moves: ['pass', 'take', 'take'], score: 1000, streak: 1 }), created_at: at }, sk)
+
+  it("takes runs only as they're made, on their day, so a past day can't be played later", async () => {
+    const p = policyAt(noon)
+    expect(await p.decide(runAt(noon))).toEqual({ permit: true })
+    expect(await p.decide(runAt(noon - 2 * 3600))).toEqual(stale)
+    // A past day, played now or dated back to it.
+    expect(await p.decide(runAt(noon, twoDaysAgo))).toEqual({ permit: false, message: `a run for ${twoDaysAgo} has to be made that day` })
+    expect(await p.decide(runAt(dayStart(twoDaysAgo) + 3600, twoDaysAgo))).toEqual(stale)
+    // A date that doesn't exist is no day at all.
+    expect(await p.decide(runAt(noon, '2026-02-31'))).toEqual({ permit: false, message: 'not a Block of the Day run' })
+  })
+
+  it("takes the day before's runs until 02:00 UTC", async () => {
+    const yesterday = previousDay(day)
+    const late = dayStart(day) + 600
+    expect(await policyAt(late).decide(runAt(late, yesterday))).toEqual({ permit: true })
+    expect(await policyAt(late + 2 * 3600).decide(runAt(late + 2 * 3600, yesterday))).toEqual({ permit: false, message: `a run for ${yesterday} has to be made that day` })
+  })
+
+  it("refuses runs while the day's transactions can't be read", async () => {
     const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: () => Promise.reject(new Error('offline')), perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
-    expect(await p.decide(run(200))).toEqual({ permit: true })
+    expect(await p.decide(run())).toEqual(tryAgain)
+  })
+
+  it('reads a day once at a time, keeps a run waiting a moment at most, and waits after the sources had nothing', async () => {
+    let t = Date.now()
+    let asked = 0
+    let answer: (found: typeof block | null) => void = () => {}
+    const p = createPolicy({
+      relayUrl: HOME,
+      findBlock: () => (asked++, new Promise<typeof block | null>((resolve) => (answer = resolve))),
+      findDeal: async () => deal,
+      perMinute: 100,
+      perIpMinute: 1000,
+      perIpDay: 100_000,
+      lookupMs: 20,
+      now: () => t,
+    })
+    expect(await p.decide(run())).toEqual(tryAgain) // the sources are slow: refused for now
+    expect(await p.decide(run())).toEqual(tryAgain) // still reading: not asked again
+    answer(null) // not mined yet
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(await p.decide(run())).toEqual(tryAgain) // just had nothing: not asked again yet
+    expect(asked).toBe(1)
+    t += 15_000
+    const later = p.decide(run())
+    answer(block)
+    expect(await later).toEqual({ permit: true })
+    expect(await p.decide(run())).toEqual({ permit: true })
+    expect(asked).toBe(2)
+  })
+})
+
+describe('sweep', () => {
+  const otherSk = generateSecretKey()
+  const yesterday = previousDay(day)
+  const twoDaysAgo = previousDay(yesterday)
+  const [d2, y, t] = [dayStart(twoDaysAgo), dayStart(yesterday), dayStart(day)]
+
+  /** A run on `onDay` made at `at` (unix seconds), played as `run()` plays it unless `score` says otherwise. */
+  const made = (who: Uint8Array, onDay: string, at: number, { streak = 1, score = 1000 } = {}) =>
+    finalizeEvent({ ...buildMinerRun({ day: onDay, block, moves: ['pass', 'take', 'take'], score, streak }), created_at: at }, who)
+
+  function relayDb() {
+    const path = join(mkdtempSync(join(tmpdir(), 'silvamor-guard-')), 'nostr.db')
+    const db = new DatabaseSync(path)
+    db.exec(RELAY_SCHEMA)
+    db.close()
+    return path
+  }
+  /** Stores `event` as nostr-rs-relay does when it gets it at `at`: its JSON, and its single-letter tags. Returns its id. */
+  function store(path: string, event: Event, at: number) {
+    const db = new DatabaseSync(path)
+    const add = db.prepare('INSERT INTO event (event_hash, first_seen, created_at, author, kind, content) VALUES (?, ?, ?, ?, ?, ?)')
+    const id = Number(add.run(hexToBytes(event.id), at, event.created_at, hexToBytes(event.pubkey), event.kind, JSON.stringify(event)).lastInsertRowid)
+    const tag = db.prepare('INSERT INTO tag (event_id, name, value, created_at, kind) VALUES (?, ?, ?, ?, ?)')
+    for (const [name, value] of event.tags) if (name.length === 1) tag.run(id, name, value, event.created_at, event.kind)
+    db.close()
+    return event.id
+  }
+  const stored = (path: string) => {
+    const db = new DatabaseSync(path)
+    const ids = db.prepare('SELECT lower(hex(event_hash)) AS id FROM event').all() as { id: string }[]
+    db.close()
+    return new Set(ids.map((r) => r.id))
+  }
+  /** The guard's policy over the relay database at `path`, where the deal two days ago can't be read. */
+  const policyOver = (path: string) =>
+    createPolicy({
+      relayUrl: HOME,
+      findBlock: async () => block,
+      findDeal: async (d) => (d === twoDaysAgo ? Promise.reject(new Error('offline')) : deal),
+      perMinute: 100,
+      perIpMinute: 1000,
+      perIpDay: 100_000,
+      streaksOn: (pk, d) => storedStreaks(path, pk, d),
+    })
+
+  it('deletes stored runs the guard would have refused, as each reached the relay, and the streaks they held up', async () => {
+    const path = relayDb()
+    const kept = [
+      store(path, made(sk, yesterday, y + 3600), y + 3605), // sent as made
+      store(path, made(sk, day, t + 600, { streak: 2 }), t + 605), // extends it
+      store(path, made(sk, twoDaysAgo, d2 + 3600), d2 + 3605), // its day can't be read yet
+    ]
+    store(path, made(sk, yesterday, y + 7200), t + 700) // sent a day late
+    store(path, made(sk, twoDaysAgo, t + 800), t + 800) // a past day, played today
+    store(path, made(sk, day, t + 900, { score: 999 }), t + 905) // doesn't replay to its fees
+    store(path, made(otherSk, yesterday, y + 3600), t + 1000) // sent a day late...
+    store(path, made(otherSk, day, t + 1100, { streak: 2 }), t + 1105) // ...and the streak it held up
+    const p = policyOver(path)
+
+    // A dry run deletes nothing, so it can't see a streak that a deletion would break.
+    const dry = await sweepRuns(path, 0, p.recheck, { dryRun: true })
+    expect({ checked: dry.checked, failed: [...dry.failed.values()].reduce((a, b) => a + b), later: dry.later }).toEqual({ checked: 8, failed: 4, later: 1 })
+    expect(stored(path).size).toBe(8)
+
+    const swept = await sweepRuns(path, 0, p.recheck, { dryRun: false })
+    expect(swept.failed).toEqual(
+      new Map([
+        ["this run wasn't made just now (is your clock right?)", 2],
+        [`a run for ${twoDaysAgo} has to be made that day`, 1],
+        ["the run doesn't replay to its fees", 1],
+        ['a 2-day streak needs a 1-day streak the day before', 1],
+      ]),
+    )
+    expect(swept.later).toBe(1)
+    expect(stored(path)).toEqual(new Set(kept))
+  })
+
+  it('sweeps every stored run a minute after the guard starts, then the last two hours', async () => {
+    const path = relayDb()
+    const now = Math.floor(Date.now() / 1000)
+    /** A run for two days ago, made and sent at `at`: never on its day. */
+    const late = (at: number) => store(path, made(sk, twoDaysAgo, at), at)
+    const lines: string[] = []
+    const guard = await startGuard(
+      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perMinute: 100, perIpMinute: 1000, perIpDay: 100_000, relayDb: path, retention: [], dryRun: false },
+      { policy: policyOver(path), log: (m) => lines.push(m) },
+    )
+    try {
+      late(now - 3 * 86400)
+      await guard.sweep()
+      const missed = late(now - 3 * 3600)
+      late(now)
+      await guard.sweep()
+      expect(stored(path)).toEqual(new Set([missed]))
+      expect(lines).toEqual(Array(2).fill(`sweep: 1 run checked, 1 failed (1× a run for ${twoDaysAgo} has to be made that day)`))
+    } finally {
+      await guard.close()
+    }
   })
 })

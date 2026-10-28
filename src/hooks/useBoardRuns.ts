@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { HOME_RELAY, pool } from '../lib/nostr/pool'
-import { MINER_RUN_KIND, parseMinerRun, type MinerRun } from '../lib/nostr/minerRuns'
-import { dayOf, dayStart, previousDay } from '../games/day'
+import { MINER_RUN_KIND, madeOnItsDay, parseMinerRun, type MinerRun } from '../lib/nostr/minerRuns'
+import { dayOf, previousDay } from '../games/day'
 
 /**
  * Runs on these days from Silvamor's relay, by `authors` (or everyone): each player's first run of
  * each day (the one that counts). The relay replays every run against its day's transactions before
- * keeping it (and checks its streak), so boards take its scores as they are. Null while loading;
- * with `refreshMs`, asked again that often.
+ * keeping it (and checks its streak), so boards take its scores as they are, leaving out only runs
+ * not made on their day. Null while loading; with `refreshMs`, asked again that often.
  */
 export function useBoardRuns(days: string[], authors?: string[], refreshMs?: number): MinerRun[] | null {
   const key = `${days.join(',')}|${authors ? [...authors].sort().join(',') : '*'}`
@@ -31,7 +31,7 @@ export function useBoardRuns(days: string[], authors?: string[], refreshMs?: num
         if (cancelled) return
         const first = new Map<string, MinerRun>()
         for (const run of found.flat().map(parseMinerRun)) {
-          if (!run || !wanted.includes(run.day) || run.createdAt < dayStart(run.day)) continue
+          if (!run || !wanted.includes(run.day) || !madeOnItsDay(run)) continue
           const id = `${run.author}:${run.day}`
           const other = first.get(id)
           if (!other || run.createdAt < other.createdAt || (run.createdAt === other.createdAt && run.event.id < other.event.id)) first.set(id, run)

@@ -1,5 +1,5 @@
 import { SimplePool } from 'nostr-tools/pool'
-import { MINER_RUN_KIND, parseMinerRun, type MinerRun } from '../../src/lib/nostr/minerRuns'
+import { MINER_RUN_KIND, madeOnItsDay, parseMinerRun, type MinerRun } from '../../src/lib/nostr/minerRuns'
 import { dayOf, dayStart, previousDay } from '../../src/games/day'
 import type { PushSubscriptionData, Store } from './store'
 
@@ -54,7 +54,7 @@ export function createWatchtower(opts: WatchtowerOptions) {
     const events = (await Promise.all(filters.map((f) => pool.querySync(opts.relays, f, { maxWait: 6000 })))).flat()
     const first = new Map<string, MinerRun>()
     for (const run of events.map(parseMinerRun)) {
-      if (!run || !days.includes(run.day) || run.createdAt < dayStart(run.day)) continue
+      if (!run || !days.includes(run.day) || !madeOnItsDay(run)) continue
       const id = `${run.author}:${run.day}`
       const other = first.get(id)
       if (!other || run.createdAt < other.createdAt || (run.createdAt === other.createdAt && run.event.id < other.event.id)) first.set(id, run)

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { HOME_RELAY, pool } from '../lib/nostr/pool'
-import { MINER_RUN_KIND, parseMinerRun } from '../lib/nostr/minerRuns'
+import { MINER_RUN_KIND, madeOnItsDay, parseMinerRun } from '../lib/nostr/minerRuns'
 import { previousDay } from '../games/day'
 
 /**
@@ -24,7 +24,7 @@ export function useStreaks(day: string, authors: string[]) {
         if (cancelled) return
         const found = new Map<string, number[]>()
         for (const run of results.flat().map(parseMinerRun)) {
-          if (run?.day === yesterday) found.set(run.author, [...(found.get(run.author) ?? []), run.streak])
+          if (run?.day === yesterday && madeOnItsDay(run)) found.set(run.author, [...(found.get(run.author) ?? []), run.streak])
         }
         setStreaks(found)
         setLoadedKey(authorsKey)

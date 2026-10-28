@@ -3,7 +3,7 @@ import { dayStart, previousDay } from '../../src/games/day'
 import { FEATURED_D, MAX_REPORT_NOTE } from '../../src/lib/moderation'
 import { parseSprite } from '../../src/lib/sprites'
 import type { Block } from '../../src/lib/bitcoin'
-import { parseMinerRun, verifyMinerRun } from '../../src/lib/nostr/minerRuns'
+import { madeOnItsDay, parseMinerRun, verifyMinerRun } from '../../src/lib/nostr/minerRuns'
 import type { MinerDeal } from '../../src/games/miner/rules'
 
 // What relay.silvamor.com accepts (docs/DEPLOY.md, "Relays"). The relay's own config already
@@ -48,17 +48,39 @@ const KINDS: Record<number, { maxBytes: number; wrong?: (e: Event) => string | n
   30951: { maxBytes: 8_192, wrong: (e) => (tag(e, 't') === 'silvamor' && parseSprite(e) ? null : 'not a Silvamor sprite') },
 }
 
+/**
+ * How far a run's time may be from the relay's clock when it arrives (seconds). The app publishes a run
+ * as it's made, so anything further off is a copy uploaded later, or a past day played after the fact
+ * to make up a streak.
+ */
+const RUN_SKEW = 30 * 60
+/** How long before asking the block sources again about a day they had nothing for: not mined yet, or no answer (ms). */
+const RETRY_MS = 15_000
+/** How long a sweep waits for a day's block and deal to be read: no one is waiting on its answer (ms). */
+const SWEEP_WAIT_MS = 30_000
+
+/** Waits for `promise`, but no longer than `ms` (it carries on after that). */
+async function waitAtMost(promise: Promise<unknown>, ms: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  await Promise.race([promise, new Promise((resolve) => (timer = setTimeout(resolve, ms)))])
+  clearTimeout(timer)
+}
+
 export interface Decision {
   permit: boolean
   /** Why, on a refusal. The relay shows it to the client as "blocked: <message>" (NIP-01 "OK"). */
   message?: string
+  /** Refused only because it can't be checked yet (a run whose day can't be read now): a sweep leaves it for next time. */
+  later?: boolean
 }
 
 export interface PolicyOptions {
   /** The first Bitcoin block at or after `time` (unix seconds): a day's seed block. Null until mined. */
   findBlock(time: number): Promise<Block | null>
   /** A day's Block of the Day deal, read from its seed block's transactions. */
-  findDeal?(day: string, block: Block): Promise<MinerDeal>
+  findDeal(day: string, block: Block): Promise<MinerDeal>
+  /** How long a run may wait for its day's block and deal to be read before it's refused for now (default 2.5 s). */
+  lookupMs?: number
   /** Events one author may publish per minute. */
   perMinute: number
   /**
@@ -102,37 +124,55 @@ const deny = (message: string): Decision => ({ permit: false, message })
 export function createPolicy(opts: PolicyOptions) {
   const now = opts.now ?? (() => Date.now())
   const log = opts.log ?? (() => {})
-  const blocks = new Map<string, Block>()
   const authorMinute = rateLimit(60_000, opts.perMinute, now)
   const ipMinute = rateLimit(60_000, opts.perIpMinute, now)
   const ipDay = rateLimit(24 * 3600_000, opts.perIpDay, now)
 
-  async function dayBlock(day: string): Promise<Block | null> {
-    if (!blocks.has(day)) {
+  /** Each day's seed block and deal, once read. Runs are only taken for today and yesterday, so older days are dropped. */
+  const games = new Map<string, { block: Block; deal: MinerDeal }>()
+  /** Days being read now, and when to ask again about days the block sources had nothing for. */
+  const reading = new Set<string>()
+  const retryAt = new Map<string, number>()
+
+  async function readGame(day: string) {
+    try {
       const block = await opts.findBlock(dayStart(day))
-      if (block) blocks.set(day, block)
+      if (block) {
+        const deal = await opts.findDeal(day, block)
+        for (const old of games.keys()) if (old < previousDay(day)) games.delete(old)
+        games.set(day, { block, deal })
+        return
+      }
+    } catch (err) {
+      log(`no block source for ${day}: ${err instanceof Error ? err.message : err}`)
     }
-    return blocks.get(day) ?? null
+    retryAt.set(day, now() + RETRY_MS)
   }
 
-  const deals = new Map<string, MinerDeal>()
+  /**
+   * The day's seed block and deal, or undefined when they can't be had right now. The relay waits for
+   * every answer, so they're read (a few requests to the block sources) once at a time per day, not
+   * again for a while after the sources had nothing, and no run waits on that longer than `waitMs`.
+   */
+  async function dayGame(day: string, waitMs: number) {
+    if (!games.has(day) && !reading.has(day) && now() >= (retryAt.get(day) ?? 0)) {
+      reading.add(day)
+      await waitAtMost(readGame(day).finally(() => reading.delete(day)), waitMs)
+    }
+    return games.get(day)
+  }
 
-  async function checkMinerRun(event: Event): Promise<Decision> {
+  /** A run as it reached the relay at `at` (unix seconds), waiting up to `waitMs` for its day to be read. */
+  async function checkMinerRun(event: Event, at: number, waitMs: number): Promise<Decision> {
     const run = parseMinerRun(event)
     if (!run) return deny('not a Block of the Day run')
-    let block: Block | null
-    let deal: MinerDeal | undefined
-    try {
-      block = await dayBlock(run.day)
-      if (block && opts.findDeal && !deals.has(run.day)) deals.set(run.day, await opts.findDeal(run.day, block))
-      deal = deals.get(run.day)
-    } catch (err) {
-      // Block sources down: let it in rather than lose a real run (clients check runs anyway).
-      log(`no block source for ${run.day}, admitting run ${event.id}: ${err instanceof Error ? err.message : err}`)
-      return permit
-    }
-    if (!block) return deny(`no Block of the Day for ${run.day} yet`)
-    if (deal && !verifyMinerRun(run, block, deal, null)) return deny("the run doesn't replay to its fees")
+    // Checked before the block sources are asked anything, so junk can't keep them (and the relay) busy.
+    if (!madeOnItsDay(run)) return deny(`a run for ${run.day} has to be made that day`)
+    if (Math.abs(at - run.createdAt) > RUN_SKEW) return deny("this run wasn't made just now (is your clock right?)")
+    // Boards take this relay's word for runs, so one it can't check now is refused: the player can try again.
+    const game = await dayGame(run.day, waitMs)
+    if (!game) return { ...deny(`can't check runs for ${run.day} yet, try again in a minute`), later: true }
+    if (!verifyMinerRun(run, game.block, game.deal)) return deny("the run doesn't replay to its fees")
     // A streak links to the day before: that day's run here must claim one day less.
     if (run.streak > 1) {
       const before = opts.streaksOn?.(event.pubkey, previousDay(run.day))
@@ -141,29 +181,41 @@ export function createPolicy(opts: PolicyOptions) {
     return permit
   }
 
+  /** Whether an event belongs here, but for the rate limits: as it reached the relay at `at` (unix seconds). */
+  async function check(event: Event, at: number, waitMs: number): Promise<Decision> {
+    const rule = KINDS[event.kind]
+    if (!rule) return deny(`Silvamor's relay doesn't keep kind ${event.kind}`)
+    // A key that asked to vanish stays forgotten: what it published before can't be uploaded again.
+    const vanished = opts.vanishedAt?.(event.pubkey)
+    if (vanished !== undefined && event.created_at <= vanished && event.kind !== 62) return deny('this key asked this relay to delete its events')
+    if (new TextEncoder().encode(JSON.stringify(event)).length > rule.maxBytes) return deny(`kind ${event.kind} events are limited to ${rule.maxBytes / 1024} KB here`)
+    const wrong = rule.wrong?.(event)
+    if (wrong) return deny(wrong)
+    if (event.kind === 62 && !event.tags.some((t) => t[0] === 'relay' && (t[1] === 'ALL_RELAYS' || sameRelay(t[1] ?? '', opts.relayUrl)))) {
+      return deny(`a request to vanish here names ${opts.relayUrl}`)
+    }
+    if (event.kind === 1953) return checkMinerRun(event, at, waitMs)
+    return permit
+  }
+
   return {
     /** `from.ip`: the sender's address, as the relay saw it (absent when it doesn't say). */
     async decide(event: Event, from: { ip?: string } = {}): Promise<Decision> {
-      const rule = KINDS[event.kind]
-      if (!rule) return deny(`Silvamor's relay doesn't keep kind ${event.kind}`)
-      // Every limit counts every attempt, so a sender who keeps pushing stays blocked.
-      const ipOverMinute = from.ip ? ipMinute(from.ip) : false
-      const ipOverDay = from.ip ? ipDay(from.ip) : false
-      const authorOver = authorMinute(event.pubkey)
-      if (ipOverDay) return deny('too many events from your network today, try again tomorrow')
-      if (ipOverMinute || authorOver) return deny('too many events, slow down')
-      // A key that asked to vanish stays forgotten: what it published before can't be uploaded again.
-      const vanished = opts.vanishedAt?.(event.pubkey)
-      if (vanished !== undefined && event.created_at <= vanished && event.kind !== 62) return deny('this key asked this relay to delete its events')
-      if (new TextEncoder().encode(JSON.stringify(event)).length > rule.maxBytes) return deny(`kind ${event.kind} events are limited to ${rule.maxBytes / 1024} KB here`)
-      const wrong = rule.wrong?.(event)
-      if (wrong) return deny(wrong)
-      if (event.kind === 62 && !event.tags.some((t) => t[0] === 'relay' && (t[1] === 'ALL_RELAYS' || sameRelay(t[1] ?? '', opts.relayUrl)))) {
-        return deny(`a request to vanish here names ${opts.relayUrl}`)
+      // Every limit counts every attempt at a kind kept here, so a sender who keeps pushing stays blocked.
+      if (KINDS[event.kind]) {
+        const ipOverMinute = from.ip ? ipMinute(from.ip) : false
+        const ipOverDay = from.ip ? ipDay(from.ip) : false
+        const authorOver = authorMinute(event.pubkey)
+        if (ipOverDay) return deny('too many events from your network today, try again tomorrow')
+        if (ipOverMinute || authorOver) return deny('too many events, slow down')
       }
-      if (event.kind === 1953) return checkMinerRun(event)
-      return permit
+      return check(event, now() / 1000, opts.lookupMs ?? 2500)
     },
+    /**
+     * Checks a stored event again, as it reached the relay at `at` (its `first_seen`, unix seconds), for
+     * the sweep: the same rules without the rate limits, waiting longer for a run's day to be read.
+     */
+    recheck: (event: Event, at: number) => check(event, at, SWEEP_WAIT_MS),
   }
 }
 

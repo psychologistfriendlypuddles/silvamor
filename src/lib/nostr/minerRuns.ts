@@ -1,6 +1,6 @@
 import type { Event, EventTemplate } from 'nostr-tools/pure'
 import type { Block } from '../bitcoin'
-import { dayStart } from '../../games/day'
+import { dayStart, isDay } from '../../games/day'
 import { decodeMoves, encodeMoves, minerRules, type MinerDeal, type MinerMove, type MinerState } from '../../games/miner/rules'
 
 // See docs/PROTOCOL.md, "Block of the Day".
@@ -45,7 +45,7 @@ export function parseMinerRun(event: Event): MinerRun | null {
   const block = tag(event, 'block')
   const height = Number(block?.[1])
   const score = Number(tag(event, 'score')?.[1])
-  if (event.kind !== MINER_RUN_KIND || !label || !/^\d{4}-\d{2}-\d{2}$/.test(label)) return null
+  if (event.kind !== MINER_RUN_KIND || !label || !isDay(label)) return null
   if (!Number.isSafeInteger(height) || !/^[0-9a-f]{64}$/.test(block?.[2] ?? '') || !Number.isSafeInteger(score)) return null
   let moves: unknown
   try {
@@ -85,21 +85,28 @@ export function replayMinerRun(deal: MinerDeal, moves: string): MinerState | nul
 }
 
 /**
- * Whether a run counts for the day `block` seeds: made on that block, after the day began and
- * before the next day's seed block (`closesAt`, once known), and its moves replay on the day's
- * deal to the fees it claims.
+ * A day's runs can still be made this long after it ends (seconds): a run started just before
+ * midnight UTC finishes after it, and the next day's seed block takes a few minutes anyway.
  */
-export function verifyMinerRun(run: MinerRun, block: Block, deal: MinerDeal, closesAt: number | null): boolean {
-  if (run.block.height !== block.height || run.block.hash !== block.hash) return false
-  if (run.createdAt < dayStart(run.day) || (closesAt !== null && run.createdAt >= closesAt)) return false
+export const DAY_GRACE = 2 * 3600
+
+/** Whether a run was made on its day: from 00:00 UTC until DAY_GRACE after the day ends. */
+export const madeOnItsDay = (run: MinerRun) => run.createdAt >= dayStart(run.day) && run.createdAt < dayStart(run.day) + 86400 + DAY_GRACE
+
+/**
+ * Whether a run counts for the day `block` seeds: made on that block and on its day, and its moves
+ * replay on the day's deal to the fees it claims.
+ */
+export function verifyMinerRun(run: MinerRun, block: Block, deal: MinerDeal): boolean {
+  if (run.block.height !== block.height || run.block.hash !== block.hash || !madeOnItsDay(run)) return false
   return replayMinerRun(deal, run.moves)?.fees === run.score
 }
 
 /** Each player's run that counts: their earliest valid one (the lower id breaks a tie). */
-export function countedMinerRuns(runs: MinerRun[], block: Block, deal: MinerDeal, closesAt: number | null): Map<string, MinerRun> {
+export function countedMinerRuns(runs: MinerRun[], block: Block, deal: MinerDeal): Map<string, MinerRun> {
   const counted = new Map<string, MinerRun>()
   for (const run of runs) {
-    if (!verifyMinerRun(run, block, deal, closesAt)) continue
+    if (!verifyMinerRun(run, block, deal)) continue
     const other = counted.get(run.author)
     if (!other || run.createdAt < other.createdAt || (run.createdAt === other.createdAt && run.event.id < other.event.id)) counted.set(run.author, run)
   }

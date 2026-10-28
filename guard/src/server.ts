@@ -5,8 +5,9 @@ import { bytesToHex } from 'nostr-tools/utils'
 import type { Event } from 'nostr-tools/pure'
 import { findFirstBlockAfter } from '../../src/lib/bitcoin'
 import { fetchDeal } from '../../src/games/miner/deal'
+import { MINER_RUN_KIND } from '../../src/lib/nostr/minerRuns'
 import { createPolicy, type Policy } from './policy'
-import { VANISH_KIND, erase, parseRetention, prune, storedStreaks, vanishRequests, type Retention } from './cleanup'
+import { VANISH_KIND, erase, parseRetention, prune, storedStreaks, sweepRuns, vanishRequests, type Retention } from './cleanup'
 import nauthzProto from '../proto/nauthz.proto?raw'
 
 // Silvamor relay guard: nostr-rs-relay asks it about every event before storing it (gRPC
@@ -20,6 +21,12 @@ import nauthzProto from '../proto/nauthz.proto?raw'
  * are taken, and the rule clears the last of them.
  */
 export const DEFAULT_RETENTION = '1952:30,1953:30,9735:30'
+
+/**
+ * How far back each sweep after the first looks (seconds): a run can fail some time after it
+ * arrived, once the day before's run it extends is deleted, and a later sweep has to see it.
+ */
+const SWEEP_WINDOW = 2 * 3600
 
 export interface GuardConfig {
   /** Where to listen for the relay, e.g. 0.0.0.0:50051. */
@@ -124,10 +131,13 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
           if (!d.permit && event.pubkey !== HEALTH_PUBKEY) log(`deny kind ${event.kind} ${event.id} from ${ip ?? 'unknown address'}: ${d.message}`)
           callback(null, { decision: d.permit ? PERMIT : DENY, message: d.message })
         })
-        // On a bug, let the event in: the relay does the same when the guard is unreachable.
+        // On a bug, let the event in, as the relay does when the guard is unreachable. But not a run,
+        // which boards take this relay's word for, or a request to vanish, which would be kept while
+        // nothing was deleted.
         .catch((err) => {
-          log(`error on ${event.id}, admitting: ${err instanceof Error ? err.message : err}`)
-          callback(null, { decision: PERMIT })
+          const refuse = event.kind === MINER_RUN_KIND || event.kind === VANISH_KIND
+          log(`error on ${event.id}, ${refuse ? 'refusing' : 'admitting'}: ${err instanceof Error ? err.message : err}`)
+          callback(null, refuse ? { decision: DENY, message: 'something went wrong here, try again' } : { decision: PERMIT })
         })
     },
   })
@@ -159,16 +169,43 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
   const first = setTimeout(cleanup, 60_000)
   const daily = setInterval(cleanup, 24 * 3600_000)
 
-  return new Promise<{ port: number; cleanup(): void; close(): Promise<void> }>((resolve, reject) => {
+  // Sweep: while the guard can't be reached, the relay stores events unchecked, and boards take its
+  // word for runs. So every minute, runs it stored lately are checked again, as each reached it, and
+  // the ones that fail are deleted: all stored runs the first time, then the last two hours'.
+  let sweptAll = false
+  let sweeping = false
+  const sweep = async () => {
+    if (!config.relayDb || sweeping) return
+    sweeping = true
+    try {
+      const since = sweptAll ? Math.floor(Date.now() / 1000) - SWEEP_WINDOW : 0
+      const { checked, failed, later } = await sweepRuns(config.relayDb, since, policy.recheck, { dryRun: config.dryRun })
+      const removed = [...failed.values()].reduce((sum, n) => sum + n, 0)
+      if (!sweptAll || removed) {
+        const reasons = [...failed].map(([why, n]) => `${n}× ${why}`).join('; ')
+        log(`sweep${config.dryRun ? ' (dry run, nothing deleted)' : ''}: ${checked} run${checked === 1 ? '' : 's'} checked, ${removed} failed${removed ? ` (${reasons})` : ''}${later ? `, ${later} couldn't be checked yet` : ''}`)
+      }
+      sweptAll = true
+    } catch (err) {
+      log(`sweep failed: ${err instanceof Error ? err.message : err}`)
+    } finally {
+      sweeping = false
+    }
+  }
+  const sweeps = setInterval(sweep, 60_000)
+
+  return new Promise<{ port: number; cleanup(): void; sweep(): Promise<void>; close(): Promise<void> }>((resolve, reject) => {
     server.bindAsync(config.listen, grpc.ServerCredentials.createInsecure(), (err, port) => {
       if (err) return reject(err)
       resolve({
         port,
         cleanup,
+        sweep,
         close: () =>
           new Promise<void>((done) => {
             clearTimeout(first)
             clearInterval(daily)
+            clearInterval(sweeps)
             server.tryShutdown(() => done())
           }),
       })

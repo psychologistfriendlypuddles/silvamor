@@ -1,9 +1,12 @@
 import { DatabaseSync } from 'node:sqlite'
 import { hexToBytes } from 'nostr-tools/utils'
+import type { Event } from 'nostr-tools/pure'
+import type { Decision } from './policy'
 
 // Deletes old events from nostr-rs-relay's SQLite database, which has no retention setting of
-// its own, and everything from a key that asks to vanish. Written against its schema (DB version 18): an `event` table with `kind` and
-// `created_at`, whose `tag` rows go with it (ON DELETE CASCADE).
+// its own, everything from a key that asks to vanish, and runs the guard would have refused. Written
+// against its schema (DB version 18): an `event` table with `kind`, `created_at` and `first_seen`
+// (when the relay got it), whose `tag` rows go with it (ON DELETE CASCADE).
 
 /** NIP-62 "request to vanish": a key asks the relay to delete everything it published. */
 export const VANISH_KIND = 62
@@ -80,6 +83,51 @@ export function vanishRequests(dbPath: string): Map<string, number> {
   try {
     const rows = db.prepare('SELECT hex(author) AS author, MAX(created_at) AS at FROM event WHERE kind = ? GROUP BY author').all(VANISH_KIND) as { author: string; at: number }[]
     return new Map(rows.map((r) => [r.author.toLowerCase(), Number(r.at)]))
+  } finally {
+    db.close()
+  }
+}
+
+/** What a sweep did: the runs it checked, how many failed and why, and how many it couldn't check yet. */
+export interface Swept {
+  checked: number
+  failed: Map<string, number>
+  later: number
+}
+
+/**
+ * Checks the Block of the Day runs the relay got since `since` (its `first_seen`, unix seconds) again,
+ * each as it reached the relay, and deletes the ones `check` refuses; with `dryRun`, only counts them.
+ * Days go oldest first, so a run that fails once the day before's run it extends is deleted goes too.
+ * Runs `check` can't tell about yet are left for the next sweep.
+ */
+export async function sweepRuns(dbPath: string, since: number, check: (event: Event, at: number) => Promise<Decision>, opts: { dryRun: boolean }): Promise<Swept> {
+  const swept: Swept = { checked: 0, failed: new Map(), later: 0 }
+  const db = open(dbPath)
+  try {
+    const labelled = "FROM event e JOIN tag t ON t.event_id = e.id WHERE e.kind = 1953 AND t.name = 'l' AND e.first_seen >= ?"
+    const days = db.prepare(`SELECT DISTINCT t.value AS day ${labelled} ORDER BY day`).all(since) as { day: string }[]
+    const runsOn = db.prepare(`SELECT DISTINCT e.event_hash AS hash, e.content, e.first_seen AS at ${labelled} AND t.value = ?`)
+    const remove = db.prepare('DELETE FROM event WHERE event_hash = ?')
+    for (const { day } of days) {
+      const runs = (runsOn.all(since, day) as { hash: Uint8Array; content: string; at: number }[])
+        .map((row) => ({ ...row, event: JSON.parse(row.content) as Event }))
+        .sort((a, b) => a.event.created_at - b.event.created_at)
+      for (const { hash, event, at } of runs) {
+        // The relay waits on the guard's every answer: let its requests in between.
+        if (++swept.checked % 100 === 0) await new Promise((resolve) => setImmediate(resolve))
+        const decision = await check(event, at)
+        if (decision.permit) continue
+        if (decision.later) {
+          swept.later++
+          continue
+        }
+        const why = decision.message ?? 'refused'
+        swept.failed.set(why, (swept.failed.get(why) ?? 0) + 1)
+        if (!opts.dryRun) remove.run(hash)
+      }
+    }
+    return swept
   } finally {
     db.close()
   }
