@@ -16,12 +16,14 @@ export interface DailyRun {
   moves: unknown[]
   /** The score the run claims; `verifyRun` checks it. */
   score: number
+  /** The days in a row the player claims to have played, today included; `confirmedStreak` checks it. */
+  streak: number
   createdAt: number
 }
 
 const tag = (event: Event, name: string) => event.tags.find((t) => t[0] === name)
 
-export function buildRun(f: { day: string; block: Block; moves: DailyDealMove[]; score: number; beaten: string[] }): EventTemplate {
+export function buildRun(f: { day: string; block: Block; moves: DailyDealMove[]; score: number; streak: number; beaten: string[] }): EventTemplate {
   return {
     kind: DAILY_RUN_KIND,
     created_at: Math.floor(Date.now() / 1000),
@@ -31,6 +33,7 @@ export function buildRun(f: { day: string; block: Block; moves: DailyDealMove[];
       ['l', f.day, DAILY_LABEL],
       ['block', String(f.block.height), f.block.hash],
       ['score', String(f.score)],
+      ['streak', String(f.streak)],
       ...f.beaten.map((p) => ['p', p]),
       ['alt', `Daily Deal run on Silvamor: ${f.score} points`],
     ],
@@ -51,8 +54,27 @@ export function parseRun(event: Event): DailyRun | null {
     return null
   }
   if (!Array.isArray(moves)) return null
-  return { event, author: event.pubkey, day: label, block: { height, hash: block![2] }, moves, score, createdAt: event.created_at }
+  // Runs from before streaks, or with a nonsense one, count as a first day.
+  const claimed = Number(tag(event, 'streak')?.[1])
+  const streak = Number.isSafeInteger(claimed) && claimed >= 1 ? claimed : 1
+  return { event, author: event.pubkey, day: label, block: { height, hash: block![2] }, moves, score, streak, createdAt: event.created_at }
 }
+
+/** The day before `day` (YYYY-MM-DD). */
+export const previousDay = (day: string) => new Date((dayStart(day) - 86400) * 1000).toISOString().slice(0, 10)
+
+/**
+ * Streaks: a run claiming N days in a row only counts if the player's run the day before, on
+ * Silvamor's relay, claims N - 1. That relay checks the same when it takes a run, so each link only
+ * needs the day before, and runs deleted after 30 days don't break a streak (docs/PROTOCOL.md).
+ * `yesterday`: the streaks the player's runs the day before claim.
+ */
+export function confirmedStreak(run: DailyRun, yesterday: number[] | undefined): number {
+  return run.streak > 1 && yesterday?.includes(run.streak - 1) ? run.streak : 1
+}
+
+/** The streak to claim on a new run, from the player's runs the day before. */
+export const nextStreak = (yesterday: number[] | undefined) => (yesterday?.length ? Math.max(...yesterday) : 0) + 1
 
 /** Replays a run's moves; the finished state, or null if they aren't a legal, complete run. */
 export function replayRun(day: string, blockHash: string, moves: unknown[]): DailyDealState | null {

@@ -6,7 +6,10 @@ A small companion to relay.silvamor.com (nostr-rs-relay). It does these jobs:
   `nauthz` API) before storing it. It admits only Silvamor's event kinds, and gives each a size
   cap and a shape check (`src/policy.ts`), so junk of an allowed kind is refused too. For example:
   Daily Deal runs must replay to the score they claim (the app's own check,
-  `../src/lib/nostr/dailyRuns.ts`) and stay under 8 KB; reports must be about a sprite, with a
+  `../src/lib/nostr/dailyRuns.ts`), and a run claiming an N-day streak needs the player's run
+  for the day before, stored here, to claim N − 1 (the guard reads it from the relay's database;
+  [docs/PROTOCOL.md](../docs/PROTOCOL.md), "Streaks"). Runs also have to
+  stay under 8 KB; reports must be about a sprite, with a
   note of at most 83 characters and 1 KB in all (reports are kept for good); kind-30078 settings
   must be Silvamor's own (`d` tag starting `silvamor/`); sprites must be valid Silvamor sprites.
   Follow lists come from any Nostr app and can be long, so they only get a 256 KB cap.

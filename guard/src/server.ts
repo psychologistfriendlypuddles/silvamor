@@ -5,7 +5,7 @@ import { bytesToHex } from 'nostr-tools/utils'
 import type { Event } from 'nostr-tools/pure'
 import { findFirstBlockAfter } from '../../src/lib/bitcoin'
 import { createPolicy, type Policy } from './policy'
-import { VANISH_KIND, erase, parseRetention, prune, vanishRequests, type Retention } from './cleanup'
+import { VANISH_KIND, erase, parseRetention, prune, storedStreaks, vanishRequests, type Retention } from './cleanup'
 import nauthzProto from '../proto/nauthz.proto?raw'
 
 // Silvamor relay guard: nostr-rs-relay asks it about every event before storing it (gRPC
@@ -106,6 +106,7 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
       perIpDay: config.perIpDay,
       relayUrl: config.relayUrl,
       vanishedAt: (pubkey) => vanished.get(pubkey),
+      streaksOn: (pubkey, day) => (config.relayDb ? storedStreaks(config.relayDb, pubkey, day) : null),
       log,
     })
   const server = new grpc.Server()

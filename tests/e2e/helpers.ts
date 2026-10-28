@@ -157,7 +157,7 @@ export async function runWith(choose: Strategy) {
 }
 
 /** Publishes a finished run for today, as the app would (kind 1952); returns its score. */
-export async function publishRun(sk: Uint8Array, opts: { run?: Awaited<ReturnType<typeof runWith>>; beaten?: string[] } = {}) {
+export async function publishRun(sk: Uint8Array, opts: { run?: Awaited<ReturnType<typeof runWith>>; beaten?: string[]; streak?: number } = {}) {
   const run = opts.run ?? (await runWith(STRATEGIES.lowest))
   await seed({
     sk,
@@ -170,11 +170,26 @@ export async function publishRun(sk: Uint8Array, opts: { run?: Awaited<ReturnTyp
         ['l', today(), 'silvamor/dailydeal'],
         ['block', String(run.block.height), run.block.id],
         ['score', String(run.score)],
+        ...(opts.streak ? [['streak', String(opts.streak)]] : []),
         ...(opts.beaten ?? []).map((p) => ['p', p]),
       ],
     },
   })
   return run.score
+}
+
+/** A run for yesterday claiming `streak` days in a row (the app only reads its streak, so the moves are left out). */
+export async function publishYesterday(sk: Uint8Array, streak: number) {
+  const day = new Date(Date.now() - 86400_000).toISOString().slice(0, 10)
+  await seed({
+    sk,
+    template: {
+      kind: 1952,
+      created_at: Math.floor(Date.now() / 1000) - 86400,
+      content: JSON.stringify({ moves: [] }),
+      tags: [['L', 'silvamor/dailydeal'], ['l', day, 'silvamor/dailydeal'], ['block', '1', 'ab'.repeat(32)], ['score', '0'], ['streak', String(streak)]],
+    },
+  })
 }
 
 /**

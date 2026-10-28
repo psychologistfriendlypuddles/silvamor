@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Relay } from 'nostr-tools/relay'
-import { RELAY, STRATEGIES, expectNoErrors, followsEvent, login, newPlayer, profileEvent, publishRun, runWith, seed, today } from './helpers'
+import { RELAY, STRATEGIES, expectNoErrors, followsEvent, login, newPlayer, profileEvent, publishRun, publishYesterday, runWith, seed, today } from './helpers'
 
 const hand = (page: Page) => page.getByRole('group', { name: 'Your hand' }).getByRole('button')
 const stat = (page: Page, label: string) => page.getByLabel(label, { exact: true })
@@ -101,6 +101,8 @@ test('daily deal: runs are published, friends on the podium, and a friend who be
   const alice = await newPlayer(browser, 'Alice')
   await seed(followsEvent(alice.sk, [getPublicKey(bob), getPublicKey(carol)]))
   await publishRun(carol, { run: lowest })
+  // Alice played the last four days.
+  await publishYesterday(alice.sk, 4)
 
   await login(alice)
   const { page } = alice
@@ -114,21 +116,30 @@ test('daily deal: runs are published, friends on the podium, and a friend who be
   expect(score).toBe(mine.score)
   await expect(podium(page, 1, 'You', mine.score)).toBeVisible()
   await expect(podium(page, 2, 'Carol', lowest.score)).toBeVisible()
+  // Today makes five days in a row; Carol has no streak.
+  await expect(page.getByRole('textbox', { name: 'Your note' })).toHaveValue(/\n🔥 5-day streak\n/)
   await page.getByRole('button', { name: 'Not now' }).click()
+  await expect(page.getByRole('textbox', { name: 'Your note' })).toBeHidden()
+  await expect(page.getByText('🔥 5-day streak')).toBeVisible()
+  await expect(podium(page, 1, 'You', mine.score).getByLabel('5-day streak')).toBeVisible()
+  await expect(podium(page, 2, 'Carol', lowest.score).getByLabel(/streak/)).toHaveCount(0)
 
   // Alice's published run tags Carol, whom she beat.
   const relay = await Relay.connect(RELAY)
   const runs = await new Promise<{ tags: string[][] }[]>((resolve) => {
     const found: { tags: string[][] }[] = []
-    const sub = relay.subscribe([{ kinds: [1952], authors: [alice.pubkey] }], { onevent: (e) => found.push(e), oneose: () => (sub.close(), resolve(found)) })
+    const sub = relay.subscribe([{ kinds: [1952], authors: [alice.pubkey], '#l': [today()] }], { onevent: (e) => found.push(e), oneose: () => (sub.close(), resolve(found)) })
   })
   relay.close()
   expect(runs).toHaveLength(1)
   expect(runs[0].tags.filter((t) => t[0] === 'p').map((t) => t[1])).toEqual([getPublicKey(carol)])
+  expect(runs[0].tags.find((t) => t[0] === 'streak')).toEqual(['streak', '5'])
 
-  // Bob then beats her: he takes gold, and Alice hears about it.
-  await publishRun(bob, { run: best, beaten: [alice.pubkey] })
+  // Bob then beats her: he takes gold, and Alice hears about it. His 9-day streak is made up
+  // (he didn't play yesterday), so it doesn't show.
+  await publishRun(bob, { run: best, beaten: [alice.pubkey], streak: 9 })
   await expect(podium(page, 1, 'Bob', best.score)).toBeVisible()
+  await expect(podium(page, 1, 'Bob', best.score).getByLabel(/streak/)).toHaveCount(0)
   await expect(podium(page, 2, 'You', mine.score)).toBeVisible()
   await expect(podium(page, 3, 'Carol', lowest.score)).toBeVisible()
   await expect(page.getByText(`🃏 Bob beat your Daily Deal score with ${points(best.score)}`)).toBeVisible()

@@ -48,6 +48,32 @@ export function erase(dbPath: string, pubkey: string, before: number): number {
   }
 }
 
+/**
+ * The streaks `pubkey`'s Daily Deal runs for `day` claim, as stored here; null if a stored event
+ * can't be read (then nothing is checked). The relay keeps each event's JSON in `content` and
+ * indexes single-letter tags, such as the day label `l`.
+ */
+export function storedStreaks(dbPath: string, pubkey: string, day: string): number[] | null {
+  const db = open(dbPath)
+  try {
+    const rows = db
+      .prepare("SELECT e.content FROM event e JOIN tag t ON t.event_id = e.id WHERE e.author = ? AND e.kind = 1952 AND t.name = 'l' AND t.value = ?")
+      .all(hexToBytes(pubkey), day) as { content: string }[]
+    const streaks: number[] = []
+    for (const { content } of rows) {
+      const tags = (JSON.parse(content) as { tags?: unknown }).tags
+      if (!Array.isArray(tags)) return null
+      const claimed = Number(tags.find((t) => Array.isArray(t) && t[0] === 'streak')?.[1])
+      streaks.push(Number.isSafeInteger(claimed) && claimed >= 1 ? claimed : 1)
+    }
+    return streaks
+  } catch {
+    return null
+  } finally {
+    db.close()
+  }
+}
+
 /** Every key that asked to vanish, with the time of its latest request (unix seconds). */
 export function vanishRequests(dbPath: string): Map<string, number> {
   const db = open(dbPath)

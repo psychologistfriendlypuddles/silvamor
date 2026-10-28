@@ -42,7 +42,7 @@ const subsets = (cards: number[]): number[][] => cards.flatMap((c, i) => [[c], .
 const best = (s: DailyDealState) => subsets(s.hand).sort((a, b) => scorePlay(b, s.perks, s.handsLeft === 1).points - scorePlay(a, s.perks, s.handsLeft === 1).points)[0]
 const weak = runWith((s) => [[...s.hand].sort((a, b) => (a % 13) - (b % 13))[0]])
 const strong = runWith(best)
-const runEvent = (run: typeof weak, beaten: string[]) => buildRun({ day, block, moves: run.moves, score: run.score, beaten })
+const runEvent = (run: typeof weak, beaten: string[]) => buildRun({ day, block, moves: run.moves, score: run.score, streak: 1, beaten })
 
 const hostSk = generateSecretKey()
 const guestSk = generateSecretKey()

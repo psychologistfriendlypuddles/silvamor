@@ -8,11 +8,11 @@ import * as protoLoader from '@grpc/proto-loader'
 import protobuf from 'protobufjs'
 import { hexToBytes } from 'nostr-tools/utils'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventTemplate } from 'nostr-tools/pure'
-import { buildRun } from '../../src/lib/nostr/dailyRuns'
+import { buildRun, previousDay } from '../../src/lib/nostr/dailyRuns'
 import { dailyDealRules, type DailyDealMove } from '../../src/games/dailydeal/rules'
 import { dayOf, dayStart, seedFor } from '../../src/games/dailydeal/daily'
 import { createPolicy } from '../src/policy'
-import { erase, parseRetention, prune, vanishRequests } from '../src/cleanup'
+import { erase, parseRetention, prune, storedStreaks, vanishRequests } from '../src/cleanup'
 import { checkHealth, configFromEnv, startGuard } from '../src/server'
 import nauthzProto from '../proto/nauthz.proto?raw'
 
@@ -32,7 +32,7 @@ const RELAY_SCHEMA = `
 `
 
 /** A finished run on today's deal, playing the first card each hand. */
-function run(scoreOffset = 0) {
+function run(scoreOffset = 0, streak = 1) {
   const rules = dailyDealRules(seedFor(day, block.hash))
   let state = rules.init()
   const moves: DailyDealMove[] = []
@@ -41,7 +41,7 @@ function run(scoreOffset = 0) {
     state = rules.apply(state, move)
     moves.push(move)
   }
-  return finalizeEvent(buildRun({ day, block, moves, score: state.score + scoreOffset, beaten: [] }), sk)
+  return finalizeEvent(buildRun({ day, block, moves, score: state.score + scoreOffset, streak, beaten: [] }), sk)
 }
 
 describe('admission policy', () => {
@@ -372,5 +372,53 @@ describe('requests to vanish (NIP-62)', () => {
       client = new Authorization(`127.0.0.1:${bare.port}`, grpc.credentials.createInsecure()) as unknown as typeof client
       expect((await admit(sign({ kind: 62, tags: [['relay', HOME]] }))).decision).toBe(2)
     })
+  })
+})
+
+describe('streaks', () => {
+  const me = getPublicKey(sk)
+  const yesterday = previousDay(day)
+
+  it("admits a streak only when the day before's run here claims one day less", async () => {
+    const asked: string[] = []
+    const p = createPolicy({
+      relayUrl: HOME,
+      findBlock: async () => block,
+      perMinute: 100,
+      perIpMinute: 1000,
+      perIpDay: 100_000,
+      streaksOn: (pk, d) => (asked.push(d), pk === me && d === yesterday ? [3] : []),
+    })
+    expect(await p.decide(run(0, 4))).toEqual({ permit: true })
+    expect(await p.decide(run(0, 1))).toEqual({ permit: true })
+    expect(await p.decide(run(0, 6))).toEqual({ permit: false, message: 'a 6-day streak needs a 5-day streak the day before' })
+    expect(asked.every((d) => d === yesterday)).toBe(true)
+  })
+
+  it("doesn't check streaks it can't look up", async () => {
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000, streaksOn: () => null })
+    expect(await p.decide(run(0, 9))).toEqual({ permit: true })
+  })
+
+  it("reads the streaks of a player's stored runs for a day, counting runs without one as a first day", () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'silvamor-guard-')), 'nostr.db')
+    const db = new DatabaseSync(path)
+    db.exec(RELAY_SCHEMA)
+    const add = db.prepare('INSERT INTO event (event_hash, first_seen, created_at, author, kind, content) VALUES (?, 0, 0, ?, 1952, ?)')
+    const label = db.prepare("INSERT INTO tag (event_id, name, value, created_at, kind) VALUES (?, 'l', ?, 0, 1952)")
+    const stored: [string, string, string[][]][] = [
+      [me, yesterday, [['l', yesterday, 'silvamor/dailydeal'], ['streak', '3']]],
+      [me, yesterday, [['l', yesterday, 'silvamor/dailydeal']]],
+      [me, day, [['l', day, 'silvamor/dailydeal'], ['streak', '4']]],
+      ['b'.repeat(64), yesterday, [['l', yesterday, 'silvamor/dailydeal'], ['streak', '7']]],
+    ]
+    stored.forEach(([author, d, tags], i) => {
+      // nostr-rs-relay keeps the whole event as JSON in `content`.
+      const id = Number(add.run(new Uint8Array([i + 1]), hexToBytes(author), JSON.stringify({ kind: 1952, pubkey: author, tags, content: '{}' })).lastInsertRowid)
+      label.run(id, d)
+    })
+    db.close()
+    expect(storedStreaks(path, me, yesterday)?.sort()).toEqual([1, 3])
+    expect(storedStreaks(path, me, '2000-01-01')).toEqual([])
   })
 })

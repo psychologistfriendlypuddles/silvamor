@@ -16,7 +16,8 @@ import { useLoadGroups } from '../hooks/useLoadGroups'
 import { useDailyRuns } from '../hooks/useDailyRuns'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { publishTo } from '../lib/nostr/pool'
-import { buildRun, type DailyRun } from '../lib/nostr/dailyRuns'
+import { buildRun, confirmedStreak, nextStreak, type DailyRun } from '../lib/nostr/dailyRuns'
+import { useStreaks } from '../hooks/useStreaks'
 import type { Block } from '../lib/bitcoin'
 import { DailyDealBoard, ScoreLine } from '../games/dailydeal/Board'
 import { dailyDealRules, type DailyDealMove, type DailyDealState } from '../games/dailydeal/rules'
@@ -103,6 +104,8 @@ function Run({ day, block }: { day: string; block: Block }) {
   const everyone = useMemo(() => [pubkey, ...follows, ...Object.values(groups).flatMap((g) => g.members)], [pubkey, follows, groups])
   const { runs, loaded, add } = useDailyRuns(day, block, everyone)
   const mine: DailyRun | undefined = runs.get(pubkey)
+  const yesterday = useStreaks(day, everyone)
+  const streakOf = (run: DailyRun) => confirmedStreak(run, yesterday.streaks.get(run.author))
   const sprite = usePlayerSprite(pubkey)
 
   const seed = useMemo(() => seedFor(day, block.hash), [day, block])
@@ -122,7 +125,8 @@ function Run({ day, block }: { day: string; block: Block }) {
     try {
       // Friends whose score this beats get a notification.
       const beaten = follows.filter((p) => p !== pubkey && (runs.get(p)?.score ?? Infinity) < state.score)
-      const event = await signer.signEvent(buildRun({ day, block, moves, score: state.score, beaten }))
+      const streak = nextStreak(yesterday.streaks.get(pubkey))
+      const event = await signer.signEvent(buildRun({ day, block, moves, score: state.score, streak, beaten }))
       await publishTo(gameWriteRelays(), event)
       add(event)
       setPublishing('idle')
@@ -133,11 +137,11 @@ function Run({ day, block }: { day: string; block: Block }) {
     }
   }
   useEffect(() => {
-    if (!finished || !followsLoaded || !loaded || mine || started.current) return
+    if (!finished || !followsLoaded || !loaded || !yesterday.loaded || mine || started.current) return
     started.current = true
     publish()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finished, followsLoaded, loaded, mine])
+  }, [finished, followsLoaded, loaded, yesterday.loaded, mine])
 
   const onMove = (move: DailyDealMove) => {
     try {
@@ -153,6 +157,7 @@ function Run({ day, block }: { day: string; block: Block }) {
 
   // A published run (maybe from another device) is the one that counts.
   const shown = mine ? statesOf(rules, mine.moves) : finished ? states : null
+  const myStreak = mine ? streakOf(mine) : nextStreak(yesterday.streaks.get(pubkey))
   const others = [...runs.keys()].filter((p) => p !== pubkey).length
 
   if (!shown) {
@@ -169,7 +174,7 @@ function Run({ day, block }: { day: string; block: Block }) {
   }
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-4">
-      <Summary states={shown} sprite={sprite} />
+      <Summary states={shown} sprite={sprite} streak={myStreak} />
       {!mine && (
         <p className="flex items-center justify-center gap-2 text-sm text-white/60">
           {publishing === 'failed' ? (
@@ -183,10 +188,10 @@ function Run({ day, block }: { day: string; block: Block }) {
           )}
         </p>
       )}
-      <Leaderboard runs={runs} me={pubkey} follows={follows} groups={Object.values(groups)} />
+      <Leaderboard runs={runs} me={pubkey} follows={follows} groups={Object.values(groups)} streakOf={streakOf} />
       <ShareRun
         open={sharing}
-        text={() => shareText(day, shown[shown.length - 1].score, shown.flatMap((s) => (s.last && 'play' in s.last ? [s.last.play] : [])), location.origin)}
+        text={() => shareText(day, shown[shown.length - 1].score, myStreak, shown.flatMap((s) => (s.last && 'play' in s.last ? [s.last.play] : [])), location.origin)}
         onClose={() => {
           markShareOffered(pubkey, day)
           setSharing(false)
@@ -250,7 +255,7 @@ function ShareForm({ initial, onClose }: { initial: string; onClose(): void }) {
   )
 }
 
-function Summary({ states, sprite }: { states: DailyDealState[]; sprite: Sprite }) {
+function Summary({ states, sprite, streak }: { states: DailyDealState[]; sprite: Sprite; streak: number }) {
   const final = states[states.length - 1]
   const plays = states.flatMap((s) => (s.last && 'play' in s.last ? [s.last.play] : []))
   return (
@@ -266,6 +271,7 @@ function Summary({ states, sprite }: { states: DailyDealState[]; sprite: Sprite 
       >
         {final.score.toLocaleString()}
       </motion.p>
+      {streak > 1 && <p className="-mt-2 font-semibold text-tangerine">🔥 {streak}-day streak</p>}
       <ol className="flex w-full flex-col gap-1.5" aria-label="Hands played">
         {plays.map((play, i) => (
           <li key={i} className="rounded-2xl bg-night-950/60 px-4 py-2">
@@ -292,7 +298,19 @@ function NextDeal() {
   )
 }
 
-function Leaderboard({ runs, me, follows, groups }: { runs: Map<string, DailyRun>; me: string; follows: string[]; groups: { id: string; title: string; members: string[] }[] }) {
+function Leaderboard({
+  runs,
+  me,
+  follows,
+  groups,
+  streakOf,
+}: {
+  runs: Map<string, DailyRun>
+  me: string
+  follows: string[]
+  groups: { id: string; title: string; members: string[] }[]
+  streakOf(run: DailyRun): number
+}) {
   const tabs = [{ id: 'following', title: 'Following', members: follows }, ...[...groups].sort((a, b) => a.title.localeCompare(b.title))]
   const [tab, setTab] = useState('following')
   const [viewing, setViewing] = useState<string | null>(null)
@@ -315,11 +333,11 @@ function Leaderboard({ runs, me, follows, groups }: { runs: Map<string, DailyRun
           </button>
         ))}
       </div>
-      <Podium top={rows.slice(0, 3)} me={me} onOpen={setViewing} />
+      <Podium top={rows.slice(0, 3)} me={me} onOpen={setViewing} streakOf={streakOf} />
       {rows.length > 3 && (
         <ol className="flex flex-col gap-1.5" aria-label="Everyone else">
           {rows.slice(3).map((run, i) => (
-            <ScoreRow key={run.author} rank={i + 4} run={run} me={run.author === me} onOpen={setViewing} />
+            <ScoreRow key={run.author} rank={i + 4} run={run} me={run.author === me} onOpen={setViewing} streak={streakOf(run)} />
           ))}
         </ol>
       )}
@@ -336,19 +354,19 @@ const PLACES = [
   { rank: 3, column: 'col-start-3', height: 'h-12', block: 'bg-tangerine/80 text-night-900', sprite: 72 },
 ]
 
-function Podium({ top, me, onOpen }: { top: DailyRun[]; me: string; onOpen(pubkey: string): void }) {
+function Podium({ top, me, onOpen, streakOf }: { top: DailyRun[]; me: string; onOpen(pubkey: string): void; streakOf(run: DailyRun): number }) {
   return (
     <ol className="grid grid-cols-3 items-end gap-2 pt-2" aria-label="Podium">
       {top.map((run, i) => (
         <li key={run.author} className={`row-start-1 ${PLACES[i].column}`}>
-          <Step run={run} place={PLACES[i]} me={run.author === me} onOpen={onOpen} />
+          <Step run={run} place={PLACES[i]} me={run.author === me} onOpen={onOpen} streak={streakOf(run)} />
         </li>
       ))}
     </ol>
   )
 }
 
-function Step({ run, place, me, onOpen }: { run: DailyRun; place: (typeof PLACES)[number]; me: boolean; onOpen(pubkey: string): void }) {
+function Step({ run, place, me, onOpen, streak }: { run: DailyRun; place: (typeof PLACES)[number]; me: boolean; onOpen(pubkey: string): void; streak: number }) {
   const sprite = usePlayerSprite(run.author)
   const name = useDisplayName(run.author)
   return (
@@ -362,12 +380,13 @@ function Step({ run, place, me, onOpen }: { run: DailyRun; place: (typeof PLACES
       </motion.div>
       <span className="w-full truncate text-center text-sm font-semibold">{me ? 'You' : name}</span>
       <span className="font-display text-lemon">{run.score.toLocaleString()}</span>
+      <Streak days={streak} />
       <span className={`flex w-full items-start justify-center rounded-t-xl pt-1 text-2xl font-display ${place.height} ${place.block}`}>{place.rank}</span>
     </button>
   )
 }
 
-function ScoreRow({ rank, run, me, onOpen }: { rank: number; run: DailyRun; me: boolean; onOpen(pubkey: string): void }) {
+function ScoreRow({ rank, run, me, onOpen, streak }: { rank: number; run: DailyRun; me: boolean; onOpen(pubkey: string): void; streak: number }) {
   const name = useDisplayName(run.author)
   return (
     <li>
@@ -378,8 +397,19 @@ function ScoreRow({ rank, run, me, onOpen }: { rank: number; run: DailyRun; me: 
         <span className="w-6 text-center font-display text-white/50">{rank}</span>
         <Avatar pubkey={run.author} className="size-8 text-xs" />
         <span className="min-w-0 flex-1 truncate font-medium">{me ? 'You' : name}</span>
+        <Streak days={streak} />
         <span className="font-display text-lemon">{run.score.toLocaleString()}</span>
       </button>
     </li>
+  )
+}
+
+/** Days in a row played, from two on. */
+function Streak({ days }: { days: number }) {
+  if (days < 2) return null
+  return (
+    <span className="text-xs font-semibold text-tangerine" aria-label={`${days}-day streak`}>
+      🔥 {days}
+    </span>
   )
 }

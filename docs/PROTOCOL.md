@@ -83,7 +83,7 @@ When a run ends, the player publishes it once:
 { "kind": 1952, "content": "{\"moves\":[{\"discard\":[3,17]},{\"play\":[8,21,34]},…]}",
   "tags": [["L", "silvamor/dailydeal"], ["l", "<day>", "silvamor/dailydeal"],
            ["block", "<seed block height>", "<seed block hash>"], ["score", "<points>"],
-           ["p", "<friend beaten>"], …, ["alt", "Daily Deal run on Silvamor: <points> points"]] }
+           ["streak", "<days in a row>"], ["p", "<friend beaten>"], …, ["alt", "Daily Deal run on Silvamor: <points> points"]] }
 ```
 
 The NIP-32 label (`l`) lets clients ask relays for one day's runs (`#l`). A run counts when:
@@ -100,6 +100,14 @@ player has finished their own run.
 
 **Leaderboards** rank the day's counted runs by score (then earlier `created_at`) among the people
 the player follows (kind 3) or among the members of one of their groups, the player included.
+
+**Streaks.** The `streak` tag counts the days in a row the player has played, this one included.
+A run claiming N > 1 only counts as a streak if the player's run for the day before, on
+relay.silvamor.com, claims N − 1; otherwise it shows as a first day. relay.silvamor.com checks the
+same link when it takes a run, so a streak is a chain of such links, each checked when it was made.
+Each check needs only the day before, so runs deleted after 30 days don't break a streak. A missing
+or unreadable `streak` tag (runs from before streaks) counts as 1. Clients claim one more than the
+largest streak on their own runs for the day before.
 
 **Beating a friend.** The run's `p` tags list the people the player follows whose counted run that
 day scored lower when the run was published. A tagged player's client tells them only when the

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
-import { buildRun, countedRuns, parseRun, replayRun, verifyRun } from './dailyRuns'
+import { buildRun, confirmedStreak, countedRuns, nextStreak, parseRun, previousDay, replayRun, verifyRun } from './dailyRuns'
 import { dailyDealRules, type DailyDealMove } from '../../games/dailydeal/rules'
 import { dayStart, seedFor } from '../../games/dailydeal/daily'
 
@@ -20,9 +20,9 @@ function playThrough(): { moves: DailyDealMove[]; score: number } {
   return { moves, score: state.score }
 }
 
-function runEvent(opts: { score?: number; at?: number; sk?: Uint8Array; hash?: string } = {}) {
+function runEvent(opts: { score?: number; at?: number; sk?: Uint8Array; hash?: string; streak?: number } = {}) {
   const { moves, score } = playThrough()
-  const template = buildRun({ day, block: { ...block, hash: opts.hash ?? block.hash }, moves, score: opts.score ?? score, beaten: [] })
+  const template = buildRun({ day, block: { ...block, hash: opts.hash ?? block.hash }, moves, score: opts.score ?? score, streak: opts.streak ?? 1, beaten: [] })
   template.created_at = opts.at ?? block.timestamp + 60
   return parseRun(finalizeEvent(template, opts.sk ?? generateSecretKey()))!
 }
@@ -63,5 +63,29 @@ describe('daily runs', () => {
     const counted = countedRuns([later, bogusEarlier, early], block, null)
     expect(counted.size).toBe(1)
     expect(counted.get(early.author)?.event.id).toBe(early.event.id)
+  })
+})
+
+describe('streaks', () => {
+  it('links each day to the one before', () => {
+    expect(previousDay('2026-03-01')).toBe('2026-02-28')
+    expect(previousDay('2027-01-01')).toBe('2026-12-31')
+  })
+
+  it("counts a streak only when the day before's run claims one day less", () => {
+    const run = runEvent({ streak: 5 })
+    expect(run.streak).toBe(5)
+    expect(confirmedStreak(run, [4])).toBe(5)
+    expect(confirmedStreak(run, [2])).toBe(1)
+    expect(confirmedStreak(run, undefined)).toBe(1)
+  })
+
+  it('reads runs from before streaks as a first day, and claims one more than the day before', () => {
+    const run = runEvent()
+    run.event.tags = run.event.tags.filter((t) => t[0] !== 'streak')
+    expect(parseRun(run.event)?.streak).toBe(1)
+    expect(nextStreak(undefined)).toBe(1)
+    expect(nextStreak([1])).toBe(2)
+    expect(nextStreak([6, 1])).toBe(7)
   })
 })

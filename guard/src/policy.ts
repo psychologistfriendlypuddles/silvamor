@@ -1,5 +1,5 @@
 import type { Event } from 'nostr-tools/pure'
-import { parseRun, verifyRun } from '../../src/lib/nostr/dailyRuns'
+import { parseRun, previousDay, verifyRun } from '../../src/lib/nostr/dailyRuns'
 import { dayStart } from '../../src/games/dailydeal/daily'
 import { FEATURED_D, MAX_REPORT_NOTE } from '../../src/lib/moderation'
 import { parseSprite } from '../../src/lib/sprites'
@@ -67,6 +67,8 @@ export interface PolicyOptions {
   perIpDay: number
   /** This relay's address, which a request to vanish must name (or ALL_RELAYS). */
   relayUrl: string
+  /** The streaks `pubkey`'s stored runs for `day` claim; null when unknown (then streaks aren't checked). */
+  streaksOn?(pubkey: string, day: string): number[] | null
   /** When `pubkey` last asked this relay to forget it (unix seconds), if it has. */
   vanishedAt?(pubkey: string): number | undefined
   now?: () => number
@@ -122,7 +124,13 @@ export function createPolicy(opts: PolicyOptions) {
       return permit
     }
     if (!block) return deny(`no Daily Deal for ${run.day} yet`)
-    return verifyRun(run, block, null) ? permit : deny("the run doesn't replay to its score")
+    if (!verifyRun(run, block, null)) return deny("the run doesn't replay to its score")
+    // A streak links to the day before: that day's run here must claim one day less.
+    if (run.streak > 1) {
+      const before = opts.streaksOn?.(event.pubkey, previousDay(run.day))
+      if (before && !before.includes(run.streak - 1)) return deny(`a ${run.streak}-day streak needs a ${run.streak - 1}-day streak the day before`)
+    }
+    return permit
   }
 
   return {
