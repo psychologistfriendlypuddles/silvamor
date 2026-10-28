@@ -3,6 +3,7 @@ import * as nip44 from 'nostr-tools/nip44'
 import { BunkerSigner, type BunkerPointer } from 'nostr-tools/nip46'
 import { pool } from './pool'
 import { trackSignerRequest } from '../../stores/signerActivity'
+import { toast } from '../../stores/toast'
 
 /**
  * Everything the app needs from a signer. NIP-44 encryption will be used for
@@ -141,7 +142,18 @@ export class Nip46Signer implements AppSigner {
   }
 }
 
-/** Some bunkers ask the user to approve the app on a web page first. */
+/** An https page, or one on this machine (a signer running locally). */
+function isWebPage(url: string) {
+  try {
+    const { protocol, hostname } = new URL(url)
+    return protocol === 'https:' || (protocol === 'http:' && hostname === 'localhost')
+  } catch {
+    return false
+  }
+}
+
+/** Some bunkers ask the user to approve the app on a web page first: opened only if it is one. */
 export function openAuthUrl(url: string) {
+  if (!isWebPage(url)) return toast.error("Your signer app asked to open something that isn't a web page, so it wasn't opened.")
   window.open(url, '_blank', 'width=600,height=700,noopener')
 }
