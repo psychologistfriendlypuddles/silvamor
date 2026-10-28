@@ -15,15 +15,20 @@ A small companion to relay.silvamor.com (nostr-rs-relay). It does these jobs:
   must be Silvamor's own (`d` tag starting `silvamor/`); sprites must be valid Silvamor sprites.
   Follow lists come from any Nostr app and can be long, so they only get a 256 KB cap.
 - **Rate limits.** Each IP address may publish 60 events a minute and 2,000 a day, however many
-  keys it uses. There's no limit per key: a key's events are public, so anyone could send them
-  again to use up the key's limit and lock its owner out. The limits are generous because many
-  players can share one address (a school, an office, a mobile network). For the address to
+  keys it uses, and have at most 20 MB a day kept here, so one machine can't fill the disk. Runs
+  and requests to vanish don't count towards the 20 MB: runs are small and deleted after 30 days,
+  and a request to vanish must always get through. There's no limit per key: a key's events are
+  public, so anyone could send them again to use up the key's limit and lock its owner out. The
+  limits are generous because many players can share one address (a school, an office, a mobile
+  network). For the address to
   be the player's and not the proxy's, the relay needs `remote_ip_header` (see
   [deploy/nostr-rs-relay.toml](../deploy/nostr-rs-relay.toml)) and must be reachable only through
   the proxy, or a client could fake the header.
 - **Clean-up.** nostr-rs-relay never deletes old events. Once a day the guard deletes events
   older than the privacy policy allows (runs and tip receipts after 30 days) straight from
-  the relay's SQLite file. Sprite reports are kept, so moderation keeps working.
+  the relay's SQLite file, and the profiles, follow lists and relay lists of keys with no runs
+  left: they're kept for players, whose app copies them back when they log in. Sprite reports
+  are kept, so moderation keeps working.
 - **Requests to vanish.** "Delete my data" on the Profile page publishes a NIP-62 request to vanish
   naming this relay (`RELAY_URL`). Before the relay stores it, the guard deletes every event that
   key published here, then refuses any of them uploaded again (anything dated before the
@@ -69,7 +74,8 @@ docker compose -f deploy/compose.yaml up -d --build
 - The guard publishes no ports: the relay reaches it as `http://guard:50051` on the compose
   network, and nothing else can.
 - Start with `DRY_RUN=true`: the log shows how many events clean-up *would* delete
-  (`cleanup (dry run, nothing deleted): kind 1952: 0, kind 1953: 0, kind 9735: 0`), and which runs
+  (`cleanup (dry run, nothing deleted): kind 1952: 0, kind 1953: 0, kind 9735: 0, profiles, follow
+  lists and relay lists of keys with no runs: 0`), and which runs
   the sweep would (`sweep (dry run, nothing deleted): 120 runs checked, 0 failed`). When the numbers
   look right, set `DRY_RUN=false`. Back up `nostr.db` first.
 
@@ -81,6 +87,7 @@ docker compose -f deploy/compose.yaml up -d --build
 | `BLOCK_SOURCES` | mempool.space, blockstream.info | Bitcoin block sources (Esplora API), to find each day's seed block and check runs |
 | `PER_IP_MINUTE` | `60` | Events one IP address may publish per minute, whatever keys it uses |
 | `PER_IP_DAY` | `2000` | Events one IP address may publish per day, whatever keys it uses |
+| `PER_IP_DAY_MB` | `20` | Megabytes of events one IP address may have kept here per day (UTC), whatever keys it uses; runs and requests to vanish don't count |
 | `RELAY_URL` | `wss://relay.silvamor.com` | This relay's address, which requests to vanish must name (or `ALL_RELAYS`) |
 | `RELAY_DB` | none | The relay's SQLite file. Without it, there's no clean-up, no sweep and no requests to vanish |
 | `RETENTION` | `1952:30,1953:30,9735:30` | What to delete, as `kind:days` pairs: by default runs and tip receipts after 30 days, as the privacy policy promises (1952 clears the last runs of the retired Daily Deal). Change it only together with the policy |
@@ -89,5 +96,5 @@ docker compose -f deploy/compose.yaml up -d --build
 Clean-up runs a minute after start and then every 24 hours; the sweep, a minute after start and
 then every minute. Both are written against nostr-rs-relay's SQLite schema (database version 18)
 and refuse older databases. Neither works with the relay's
-experimental Postgres engine. Profiles, follow lists and other replaceable events need no
+experimental Postgres engine. Leagues, sprites, settings and other replaceable events need no
 clean-up: the relay keeps only the newest of each.

@@ -12,7 +12,7 @@ import { buildMinerRun } from '../../src/lib/nostr/minerRuns'
 import type { MinerDeal } from '../../src/games/miner/rules'
 import { dayOf, dayStart, previousDay } from '../../src/games/day'
 import { createPolicy } from '../src/policy'
-import { erase, parseRetention, prune, storedStreaks, sweepRuns, vanishRequests } from '../src/cleanup'
+import { erase, parseRetention, prune, pruneNonPlayers, storedStreaks, sweepRuns, vanishRequests } from '../src/cleanup'
 import { checkHealth, configFromEnv, startGuard } from '../src/server'
 import nauthzProto from '../proto/nauthz.proto?raw'
 
@@ -48,7 +48,7 @@ function run(scoreOffset = 0, streak = 1) {
 }
 
 describe('admission policy', () => {
-  const policy = () => createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000 })
+  const policy = () => createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9 })
 
   const sprite = 'a'.repeat(64)
   const report = (note: string, extra: string[][] = []) =>
@@ -120,14 +120,14 @@ describe('admission policy', () => {
 
   it("refuses runs it can't check yet: a day whose block isn't mined, or no block source answering", async () => {
     const tryAgain = { permit: false, later: true, message: `can't check runs for ${day} yet, try again in a minute` }
-    const unmined = createPolicy({ relayUrl: HOME, findBlock: async () => null, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000 })
+    const unmined = createPolicy({ relayUrl: HOME, findBlock: async () => null, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9 })
     expect(await unmined.decide(run())).toEqual(tryAgain)
-    const down = createPolicy({ relayUrl: HOME, findBlock: async () => Promise.reject(new Error('offline')), findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000 })
+    const down = createPolicy({ relayUrl: HOME, findBlock: async () => Promise.reject(new Error('offline')), findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9 })
     expect(await down.decide(run())).toEqual(tryAgain)
   })
 
   it("doesn't limit a key, so resending a player's events can't lock them out", async () => {
-    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 3, perIpDay: 100_000 })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 3, perIpDay: 100_000, perIpDayBytes: 1e9 })
     const profile = sign({ kind: 0, content: '{}' })
     // Someone sends the player's profile again and again, from one address and then from many.
     for (let i = 0; i < 10; i++) await p.decide(profile, { ip: '203.0.113.66' })
@@ -143,7 +143,7 @@ describe('limits per IP address', () => {
 
   it('caps one address per minute, however many keys it uses', async () => {
     let t = 0
-    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 3, perIpDay: 100, now: () => t })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 3, perIpDay: 100, perIpDayBytes: 1e9, now: () => t })
     for (let i = 0; i < 3; i++) expect((await p.decide(throwaway(), { ip: '203.0.113.7' })).permit).toBe(true)
     expect(await p.decide(throwaway(), { ip: '203.0.113.7' })).toEqual({ permit: false, message: 'too many events, slow down' })
     // Other addresses, and events whose address the relay didn't pass on, aren't affected.
@@ -155,7 +155,7 @@ describe('limits per IP address', () => {
 
   it('caps one address per day', async () => {
     let t = 0
-    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 100, perIpDay: 5, now: () => t })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 100, perIpDay: 5, perIpDayBytes: 1e9, now: () => t })
     for (let i = 0; i < 5; i++) {
       t += 120_000
       expect((await p.decide(throwaway(), { ip: '203.0.113.7' })).permit).toBe(true)
@@ -164,6 +164,25 @@ describe('limits per IP address', () => {
     expect(await p.decide(throwaway(), { ip: '203.0.113.7' })).toEqual({ permit: false, message: 'too many events from your network today, try again tomorrow' })
     t += 24 * 3600_000
     expect((await p.decide(throwaway(), { ip: '203.0.113.7' })).permit).toBe(true)
+  })
+
+  it('caps the data one address can have kept a day (20 MB by default), but never its runs or requests to vanish', async () => {
+    expect(configFromEnv({}).perIpDayBytes).toBe(20 * 1024 * 1024)
+    let t = Date.now()
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 100, perIpDay: 100, perIpDayBytes: 3000, now: () => t })
+    /** A profile of about 1 KB, from a brand-new key. */
+    const profile = () => finalizeEvent({ kind: 0, created_at: Math.floor(t / 1000), tags: [], content: JSON.stringify({ about: 'x'.repeat(800) }) }, generateSecretKey())
+    const ip = '203.0.113.7'
+    expect((await p.decide(profile(), { ip })).permit).toBe(true)
+    expect((await p.decide(profile(), { ip })).permit).toBe(true)
+    expect(await p.decide(profile(), { ip })).toEqual({ permit: false, message: 'too much data from your network today, try again tomorrow' })
+    // Runs and requests to vanish still get in, and other addresses aren't affected.
+    expect(await p.decide(run(), { ip })).toEqual({ permit: true })
+    expect(await p.decide(sign({ kind: 62, tags: [['relay', HOME]] }), { ip })).toEqual({ permit: true })
+    expect((await p.decide(profile(), { ip: '198.51.100.2' })).permit).toBe(true)
+    // A new day, a new budget.
+    t += 24 * 3600_000
+    expect((await p.decide(profile(), { ip })).permit).toBe(true)
   })
 })
 
@@ -221,6 +240,33 @@ describe('cleanup', () => {
     expect(count(path, 'SELECT COUNT(*) AS n FROM event')).toBe(2)
     expect(count(path, 'SELECT COUNT(*) AS n FROM tag')).toBe(2)
   })
+
+  it("deletes the profiles, follow lists and relay lists of keys with no runs, and nothing of players'", () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'silvamor-guard-')), 'nostr.db')
+    const db = new DatabaseSync(path)
+    db.exec(RELAY_SCHEMA)
+    const add = db.prepare("INSERT INTO event (event_hash, first_seen, created_at, author, kind, content) VALUES (?, 0, 0, ?, ?, '{}')")
+    const [player, visitor] = [new Uint8Array([1]), new Uint8Array([2])]
+    const rows: [Uint8Array, number][] = [
+      [player, 1953],
+      [player, 0],
+      [player, 3],
+      [player, 10002],
+      [visitor, 0],
+      [visitor, 3],
+      [visitor, 10002],
+      [visitor, 30000], // a league
+      [visitor, 30951], // a sprite
+    ]
+    rows.forEach(([author, kind], i) => add.run(new Uint8Array([i + 1]), author, kind))
+    db.close()
+    expect(pruneNonPlayers(path, { dryRun: true })).toBe(3)
+    expect(count(path, 'SELECT COUNT(*) AS n FROM event')).toBe(9)
+    expect(pruneNonPlayers(path, { dryRun: false })).toBe(3)
+    expect(count(path, "SELECT COUNT(*) AS n FROM event WHERE author = x'01'")).toBe(4)
+    expect(count(path, "SELECT COUNT(*) AS n FROM event WHERE author = x'02' AND kind IN (30000, 30951)")).toBe(2)
+    expect(count(path, 'SELECT COUNT(*) AS n FROM event')).toBe(6)
+  })
 })
 
 describe('gRPC event admission', () => {
@@ -229,8 +275,8 @@ describe('gRPC event admission', () => {
 
   beforeAll(async () => {
     guard = await startGuard(
-      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, relayDb: null, retention: [], dryRun: true },
-      { policy: createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 2, perIpDay: 100_000 }), log: () => {} },
+      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,relayDb: null, retention: [], dryRun: true },
+      { policy: createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 2, perIpDay: 100_000, perIpDayBytes: 1e9 }), log: () => {} },
     )
     const def = protoLoader.fromJSON(protobuf.parse(nauthzProto, { keepCase: true }).root.toJSON(), { keepCase: true, longs: Number, enums: Number, defaults: true })
     const { Authorization } = grpc.loadPackageDefinition(def).nauthz as unknown as { Authorization: grpc.ServiceClientConstructor }
@@ -275,7 +321,7 @@ describe('gRPC event admission', () => {
 
   it('refuses runs and requests to vanish when something goes wrong, and lets other events in', async () => {
     const broken = await startGuard(
-      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, relayDb: null, retention: [], dryRun: true },
+      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,relayDb: null, retention: [], dryRun: true },
       { policy: { decide: () => Promise.reject(new Error('bug')), recheck: () => Promise.reject(new Error('bug')) }, log: () => {} },
     )
     const def = protoLoader.fromJSON(protobuf.parse(nauthzProto, { keepCase: true }).root.toJSON(), { keepCase: true, longs: Number, enums: Number, defaults: true })
@@ -326,14 +372,14 @@ describe('requests to vanish (NIP-62)', () => {
   }
 
   it('admits requests that name this relay or all relays, and refuses ones for other relays', async () => {
-    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000 })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9 })
     expect(await p.decide(sign({ kind: 62, tags: [['relay', `${HOME}/`]] }))).toEqual({ permit: true })
     expect(await p.decide(sign({ kind: 62, tags: [['relay', 'ALL_RELAYS']] }))).toEqual({ permit: true })
     expect(await p.decide(sign({ kind: 62, tags: [['relay', 'wss://nos.lol']] }))).toEqual({ permit: false, message: `a request to vanish here names ${HOME}` })
   })
 
   it("refuses a vanished key's older events, and admits newer ones", async () => {
-    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, vanishedAt: (pk) => (pk === me ? now : undefined) })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,vanishedAt: (pk) => (pk === me ? now : undefined) })
     expect(await p.decide(sign({ kind: 0, content: '{}', created_at: now - 60 }))).toEqual({ permit: false, message: 'this key asked this relay to delete its events' })
     expect(await p.decide(sign({ kind: 0, content: '{}', created_at: now + 60 }))).toEqual({ permit: true })
   })
@@ -359,7 +405,7 @@ describe('requests to vanish (NIP-62)', () => {
     beforeAll(async () => {
       path = storedDb()
       guard = await startGuard(
-        { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, relayDb: path, retention: [], dryRun: true },
+        { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,relayDb: path, retention: [], dryRun: true },
         { log: () => {} },
       )
       const def = protoLoader.fromJSON(protobuf.parse(nauthzProto, { keepCase: true }).root.toJSON(), { keepCase: true, longs: Number, enums: Number, defaults: true })
@@ -386,7 +432,7 @@ describe('requests to vanish (NIP-62)', () => {
 
     it('refuses a request when it has no database to delete from', async () => {
       const bare = await startGuard(
-        { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, relayDb: null, retention: [], dryRun: true },
+        { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,relayDb: null, retention: [], dryRun: true },
         { log: () => {} },
       )
       await guard.close()
@@ -412,6 +458,7 @@ describe('streaks', () => {
       findDeal: async () => deal,
       perIpMinute: 1000,
       perIpDay: 100_000,
+      perIpDayBytes: 1e9,
       streaksOn: (pk, d) => (asked.push(d), pk === me && d === yesterday ? [3] : []),
     })
     expect(await p.decide(run(0, 4))).toEqual({ permit: true })
@@ -421,7 +468,7 @@ describe('streaks', () => {
   })
 
   it("doesn't check streaks it can't look up", async () => {
-    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, streaksOn: () => null })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,streaksOn: () => null })
     expect(await p.decide(run(0, 9))).toEqual({ permit: true })
   })
 
@@ -455,7 +502,7 @@ describe('Block of the Day runs', () => {
   const twoDaysAgo = previousDay(previousDay(day))
   /** The policy with its clock at `seconds` (unix). */
   const policyAt = (seconds: number) =>
-    createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, now: () => seconds * 1000 })
+    createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,now: () => seconds * 1000 })
   /** `run()` made at `at` (unix seconds), for `onDay`. */
   const runAt = (at: number, onDay = day) => finalizeEvent({ ...buildMinerRun({ day: onDay, block, moves: ['pass', 'take', 'take'], score: 1000, streak: 1 }), created_at: at }, sk)
 
@@ -478,7 +525,7 @@ describe('Block of the Day runs', () => {
   })
 
   it("refuses runs while the day's transactions can't be read", async () => {
-    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: () => Promise.reject(new Error('offline')), perIpMinute: 1000, perIpDay: 100_000 })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: () => Promise.reject(new Error('offline')), perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9 })
     expect(await p.decide(run())).toEqual(tryAgain)
   })
 
@@ -492,6 +539,7 @@ describe('Block of the Day runs', () => {
       findDeal: async () => deal,
       perIpMinute: 1000,
       perIpDay: 100_000,
+      perIpDayBytes: 1e9,
       lookupMs: 20,
       now: () => t,
     })
@@ -551,6 +599,7 @@ describe('sweep', () => {
       findDeal: async (d) => (d === twoDaysAgo ? Promise.reject(new Error('offline')) : deal),
       perIpMinute: 1000,
       perIpDay: 100_000,
+      perIpDayBytes: 1e9,
       streaksOn: (pk, d) => storedStreaks(path, pk, d),
     })
 
@@ -593,7 +642,7 @@ describe('sweep', () => {
     const late = (at: number) => store(path, made(sk, twoDaysAgo, at), at)
     const lines: string[] = []
     const guard = await startGuard(
-      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, relayDb: path, retention: [], dryRun: false },
+      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,relayDb: path, retention: [], dryRun: false },
       { policy: policyOver(path), log: (m) => lines.push(m) },
     )
     try {

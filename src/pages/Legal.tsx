@@ -15,7 +15,7 @@ function NostrContact({ children = 'message us on Nostr' }: { children?: ReactNo
     </a>
   )
 }
-const EFFECTIVE = 'October 27, 2026'
+const EFFECTIVE = 'October 28, 2026'
 const SITE = 'www.silvamor.com'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -280,7 +280,8 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
             reports and tip receipts to relay.silvamor.com, which we run, as well as to the relays you choose. We use them to show leaderboards and
             send streak reminders. Runs and tip receipts are deleted after <b>30 days</b>. Sprite reports are kept so moderation keeps working. Profiles,
             follow lists, relay lists, leagues, sprites and settings are kept only in their latest version: a newer one replaces the old, and they’re
-            deleted when you delete them or ask us to.
+            deleted when you delete them or ask us to. Your profile, follow list and relay list are also deleted once you have no game runs left
+            there (30 days after your last game); Silvamor copies them back the next time you log in.
             The relay also records the IP address and time of each connection, which we keep for no more than <b>30 days</b>.
           </li>
         </ul>

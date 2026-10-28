@@ -171,3 +171,23 @@ export function prune(dbPath: string, rules: Retention[], opts: { dryRun: boolea
     db.close()
   }
 }
+
+/** What the app copies here from its player's own relays (src/lib/nostr/mirror.ts): profiles, follow lists, relay lists. */
+const MIRRORED_KINDS = [0, 3, 10002]
+
+/**
+ * Deletes the profiles, follow lists and relay lists of keys with no runs here (none in 30 days, once
+ * runs are cleaned up): they're kept for players, whose app copies them back when they log in, and
+ * they're the bulkiest things anyone can store. With `dryRun`, only counts them.
+ */
+export function pruneNonPlayers(dbPath: string, opts: { dryRun: boolean }): number {
+  const db = open(dbPath)
+  try {
+    const where = `kind IN (${MIRRORED_KINDS.join(', ')}) AND author NOT IN (SELECT author FROM event WHERE kind = 1953)`
+    return opts.dryRun
+      ? Number((db.prepare(`SELECT COUNT(*) AS n FROM event WHERE ${where}`).get() as { n: number }).n)
+      : Number(db.prepare(`DELETE FROM event WHERE ${where}`).run().changes)
+  } finally {
+    db.close()
+  }
+}

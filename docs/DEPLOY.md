@@ -107,17 +107,18 @@ the guard has a Docker health check.
 | Size and time limits (relay config) | Events over 256 KB (room for follow lists of about 3,500 people), or dated more than 30 minutes ahead, are refused |
 | `limit_scrapers` (relay config) | Vague "give me everything" queries are refused; every query Silvamor makes is narrow enough |
 | Relay guard: admission | Each kind gets a size cap and a shape check, so junk of an allowed kind is refused too: runs must arrive as they're made and replay to their score, reports must be about a sprite (notes at most 83 characters, 1 KB in all), settings must be Silvamor's own, sprites must be valid, and so on |
-| Relay guard: rate limits | 60 events a minute and 2,000 a day per IP address, however many keys it uses; none per key, since anyone can resend a key's events (the relay reads each player's real address from the proxy's `X-Real-IP` header) |
-| Relay guard: clean-up | Deletes runs and tip receipts after 30 days, as the privacy policy promises; keeps sprite reports |
+| Relay guard: rate limits | 60 events a minute, 2,000 a day and 20 MB kept a day per IP address, however many keys it uses (runs and requests to vanish aside from the 20 MB); none per key, since anyone can resend a key's events (the relay reads each player's real address from the proxy's `X-Real-IP` header) |
+| Relay guard: clean-up | Deletes runs and tip receipts after 30 days, as the privacy policy promises, and the profiles, follow lists and relay lists of keys with no runs left (players' apps copy them back at login); keeps sprite reports |
 | Relay guard: requests to vanish | "Delete my data" on the Profile page sends a NIP-62 request naming this relay; the guard deletes everything that key published here and refuses those events if they're uploaded again |
 | Relay guard: sweep | Every minute, checks the runs stored in the last two hours again (all of them after it starts) and deletes the ones it would have refused, such as runs stored while it was down |
 
 Check the option names against the sample `config.toml` of the nostr-rs-relay version you run.
 If the guard is down, the relay admits events but still applies its allowlist: nothing is lost, and
 the runs it stored meanwhile are checked by the guard's sweep a minute after it's back.
-Replaceable events (profiles, follow lists, relay lists, leagues, sprites) need no clean-up: the
-relay keeps only the newest of each. Runs are about 2 KB, so without clean-up 10,000 players a day
-add about 7 GB a year.
+Leagues, sprites and other replaceable events need no clean-up: the relay keeps only the newest of
+each. Runs are about 2 KB, so without clean-up 10,000 players a day add about 7 GB a year. Anything
+else one address sends is capped at 20 MB a day, so keep an eye on disk space all the same: someone
+with many addresses can still add that much from each.
 
 ## 5. Push service (optional)
 

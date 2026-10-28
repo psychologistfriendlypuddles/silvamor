@@ -7,7 +7,7 @@ import { findFirstBlockAfter } from '../../src/lib/bitcoin'
 import { fetchDeal } from '../../src/games/miner/deal'
 import { MINER_RUN_KIND } from '../../src/lib/nostr/minerRuns'
 import { createPolicy, type Policy } from './policy'
-import { VANISH_KIND, erase, parseRetention, prune, storedStreaks, sweepRuns, vanishRequests, type Retention } from './cleanup'
+import { VANISH_KIND, erase, parseRetention, prune, pruneNonPlayers, storedStreaks, sweepRuns, vanishRequests, type Retention } from './cleanup'
 import nauthzProto from '../proto/nauthz.proto?raw'
 
 // Silvamor relay guard: nostr-rs-relay asks it about every event before storing it (gRPC
@@ -17,8 +17,9 @@ import nauthzProto from '../proto/nauthz.proto?raw'
 /**
  * What the privacy policy promises (src/pages/Legal.tsx, "Our relay"): game runs and tip receipts are
  * deleted after 30 days; sprite reports are kept so moderation keeps working. Replaceable events
- * need no rule: the relay keeps only the newest. 1952 is the retired Daily Deal's runs: no new ones
- * are taken, and the rule clears the last of them.
+ * need no rule: the relay keeps only the newest (and profiles, follow lists and relay lists only
+ * while their key has runs here, see `pruneNonPlayers`). 1952 is the retired Daily Deal's runs: no
+ * new ones are taken, and the rule clears the last of them.
  */
 export const DEFAULT_RETENTION = '1952:30,1953:30,9735:30'
 
@@ -36,6 +37,8 @@ export interface GuardConfig {
   blockSources: string[]
   perIpMinute: number
   perIpDay: number
+  /** Bytes one IP address may have kept each day (runs and requests to vanish aside). */
+  perIpDayBytes: number
   /** The relay's SQLite file, for cleanup and requests to vanish. Without it there's neither. */
   relayDb: string | null
   retention: Retention[]
@@ -51,6 +54,7 @@ export function configFromEnv(env = process.env): GuardConfig {
     blockSources: list(env.BLOCK_SOURCES, ['https://mempool.space/api/blocks/tip/height', 'https://blockstream.info/api/blocks/tip/height']),
     perIpMinute: Number(env.PER_IP_MINUTE ?? 60),
     perIpDay: Number(env.PER_IP_DAY ?? 2000),
+    perIpDayBytes: Number(env.PER_IP_DAY_MB ?? 20) * 1024 * 1024,
     relayDb: env.RELAY_DB || null,
     retention: parseRetention(env.RETENTION ?? DEFAULT_RETENTION),
     dryRun: env.DRY_RUN !== 'false',
@@ -111,6 +115,7 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
       findDeal: (day, block) => fetchDeal(day, block, config.blockSources),
       perIpMinute: config.perIpMinute,
       perIpDay: config.perIpDay,
+      perIpDayBytes: config.perIpDayBytes,
       relayUrl: config.relayUrl,
       vanishedAt: (pubkey) => vanished.get(pubkey),
       streaksOn: (pubkey, day) => (config.relayDb ? storedStreaks(config.relayDb, pubkey, day) : null),
@@ -155,10 +160,12 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
 
   // Cleanup: shortly after starting, then daily.
   const cleanup = () => {
-    if (!config.relayDb || config.retention.length === 0) return
+    if (!config.relayDb) return
     try {
       const counts = prune(config.relayDb, config.retention, { dryRun: config.dryRun })
-      log(`cleanup${config.dryRun ? ' (dry run, nothing deleted)' : ''}: ${Object.entries(counts).map(([k, n]) => `kind ${k}: ${n}`).join(', ')}`)
+      const nonPlayers = pruneNonPlayers(config.relayDb, { dryRun: config.dryRun })
+      const kinds = Object.entries(counts).map(([k, n]) => `kind ${k}: ${n}, `).join('')
+      log(`cleanup${config.dryRun ? ' (dry run, nothing deleted)' : ''}: ${kinds}profiles, follow lists and relay lists of keys with no runs: ${nonPlayers}`)
     } catch (err) {
       log(`cleanup failed: ${err instanceof Error ? err.message : err}`)
     }

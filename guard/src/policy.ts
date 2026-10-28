@@ -1,5 +1,5 @@
 import type { Event } from 'nostr-tools/pure'
-import { dayStart, previousDay } from '../../src/games/day'
+import { dayOf, dayStart, previousDay } from '../../src/games/day'
 import { FEATURED_D, MAX_REPORT_NOTE } from '../../src/lib/moderation'
 import { parseSprite } from '../../src/lib/sprites'
 import type { Block } from '../../src/lib/bitcoin'
@@ -10,6 +10,8 @@ import type { MinerDeal } from '../../src/games/miner/rules'
 // refuses other kinds and oversized events; this adds the checks a config file can't express.
 
 const tag = (e: Event, name: string) => e.tags.find((t) => t[0] === name)?.[1]
+/** An event's size as JSON, in bytes. */
+const sizeOf = (e: Event) => new TextEncoder().encode(JSON.stringify(e)).length
 const isJsonObject = (text: string) => {
   try {
     const v = JSON.parse(text)
@@ -87,6 +89,12 @@ export interface PolicyOptions {
    */
   perIpMinute: number
   perIpDay: number
+  /**
+   * Bytes of events one IP address may have kept here each day (UTC), whatever keys it uses, so
+   * nobody can fill the relay's disk. Runs and requests to vanish don't count: runs are small,
+   * counted by `perIpDay` and deleted after 30 days, and a request to vanish must always get through.
+   */
+  perIpDayBytes: number
   /** This relay's address, which a request to vanish must name (or ALL_RELAYS). */
   relayUrl: string
   /** The streaks `pubkey`'s stored runs for `day` claim; null when unknown (then streaks aren't checked). */
@@ -184,7 +192,7 @@ export function createPolicy(opts: PolicyOptions) {
     // A key that asked to vanish stays forgotten: what it published before can't be uploaded again.
     const vanished = opts.vanishedAt?.(event.pubkey)
     if (vanished !== undefined && event.created_at <= vanished && event.kind !== 62) return deny('this key asked this relay to delete its events')
-    if (new TextEncoder().encode(JSON.stringify(event)).length > rule.maxBytes) return deny(`kind ${event.kind} events are limited to ${rule.maxBytes / 1024} KB here`)
+    if (sizeOf(event) > rule.maxBytes) return deny(`kind ${event.kind} events are limited to ${rule.maxBytes / 1024} KB here`)
     const wrong = rule.wrong?.(event)
     if (wrong) return deny(wrong)
     if (event.kind === 62 && !event.tags.some((t) => t[0] === 'relay' && (t[1] === 'ALL_RELAYS' || sameRelay(t[1] ?? '', opts.relayUrl)))) {
@@ -192,6 +200,23 @@ export function createPolicy(opts: PolicyOptions) {
     }
     if (event.kind === 1953) return checkMinerRun(event, at, waitMs)
     return permit
+  }
+
+  /** Bytes kept here today (UTC) from each IP address. */
+  let today = ''
+  const bytesToday = new Map<string, number>()
+
+  /** Counts `bytes` against `ip`'s budget for today, unless they'd go over it (then says so). */
+  function overBudget(ip: string, bytes: number) {
+    const day = dayOf(new Date(now()))
+    if (day !== today) {
+      today = day
+      bytesToday.clear()
+    }
+    const total = (bytesToday.get(ip) ?? 0) + bytes
+    if (total > opts.perIpDayBytes) return true
+    bytesToday.set(ip, total)
+    return false
   }
 
   return {
@@ -206,7 +231,11 @@ export function createPolicy(opts: PolicyOptions) {
         if (overDay) return deny('too many events from your network today, try again tomorrow')
         if (overMinute) return deny('too many events, slow down')
       }
-      return check(event, now() / 1000, opts.lookupMs ?? 2500)
+      const decision = await check(event, now() / 1000, opts.lookupMs ?? 2500)
+      if (decision.permit && from.ip && event.kind !== 1953 && event.kind !== 62 && overBudget(from.ip, sizeOf(event))) {
+        return deny('too much data from your network today, try again tomorrow')
+      }
+      return decision
     },
     /**
      * Checks a stored event again, as it reached the relay at `at` (its `first_seen`, unix seconds), for
