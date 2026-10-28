@@ -20,6 +20,7 @@ import type { Block } from '../lib/bitcoin'
 import { markShareOffered, shareOffered } from '../lib/shareOffer'
 import { dayOf } from '../games/day'
 import { MinerBoard } from '../games/miner/Board'
+import { GameInfo } from '../games/miner/GameInfo'
 import { dealFor, loadDeal, loadMoves, saveMoves } from '../games/miner/local'
 import { bestFees, decodeMoves, encodeMoves, minerFees, minerRules, minerSeed, percentOf, type MinerDeal, type MinerMove, type MinerState } from '../games/miner/rules'
 import { GAME_TAG, sats, shareText } from '../games/miner/share'
@@ -36,7 +37,12 @@ export function MinerPage() {
       />
       <DayBlock day={day} seeds="Today's transactions are picked">
         {/* Keyed by account, so switching logins starts that account's own run. */}
-        {(block) => <DealLoader key={pubkey} day={day} block={block} />}
+        {(block) => (
+          <>
+            <GameInfo day={day} block={block} />
+            <DealLoader key={pubkey} day={day} block={block} />
+          </>
+        )}
       </DayBlock>
     </div>
   )

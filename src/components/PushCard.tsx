@@ -4,9 +4,7 @@ import { DEFAULT_PUSH_URL, disablePush, enablePush, isPushEnabled, pushSupport, 
 import { useSigner } from '../stores/session'
 import { toast } from '../stores/toast'
 import { Button, Card, Field, Toggle } from './ui'
-
-/** The day ends at midnight UTC: when that is here, e.g. "1:00 AM". */
-const dayEndsAt = () => new Date(Date.UTC(2000, 0, 1)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+import { dayEndsLocally } from '../games/day'
 
 /** "Remind me to keep my streak": push notifications through a push service. */
 export function PushCard() {
@@ -58,7 +56,7 @@ export function PushCard() {
           <p className="font-semibold">Streak reminders</p>
           <p className="text-sm text-white/55">
             If you have a streak going and haven't played yet, get a notification on this device a few hours before the day ends (midnight UTC,{' '}
-            {dayEndsAt()} for you).
+            {dayEndsLocally()} for you).
           </p>
         </div>
       </div>

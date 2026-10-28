@@ -6,11 +6,18 @@ import { dayOf, dayStart, previousDay } from '../games/day'
 /**
  * Runs on these days from Silvamor's relay, by `authors` (or everyone): each player's first run of
  * each day (the one that counts). The relay replays every run against its day's transactions before
- * keeping it (and checks its streak), so boards take its scores as they are. Null while loading.
+ * keeping it (and checks its streak), so boards take its scores as they are. Null while loading;
+ * with `refreshMs`, asked again that often.
  */
-export function useBoardRuns(days: string[], authors?: string[]): MinerRun[] | null {
+export function useBoardRuns(days: string[], authors?: string[], refreshMs?: number): MinerRun[] | null {
   const key = `${days.join(',')}|${authors ? [...authors].sort().join(',') : '*'}`
   const [state, setState] = useState<{ key: string; runs: MinerRun[] | null }>({ key: '', runs: null })
+  const [round, setRound] = useState(0)
+  useEffect(() => {
+    if (!refreshMs) return
+    const timer = setInterval(() => setRound((n) => n + 1), refreshMs)
+    return () => clearInterval(timer)
+  }, [refreshMs])
   useEffect(() => {
     let cancelled = false
     const [dayList, authorList] = key.split('|')
@@ -35,7 +42,7 @@ export function useBoardRuns(days: string[], authors?: string[]): MinerRun[] | n
     return () => {
       cancelled = true
     }
-  }, [key])
+  }, [key, round])
   return state.key === key ? state.runs : null
 }
 

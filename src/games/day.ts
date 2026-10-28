@@ -38,3 +38,8 @@ export function untilNextDay(now: Date) {
   const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)
   return next - now.getTime()
 }
+
+/** When the day ends (the next 00:00 UTC) on the player's clock, e.g. "5:00 PM". */
+export function dayEndsLocally(now = new Date()) {
+  return new Date(now.getTime() + untilNextDay(now)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}

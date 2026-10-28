@@ -35,6 +35,15 @@ test('beat the miner: take or pass until the block is found, then a streak and a
   const { page } = alice
   await expect(page.getByRole('heading', { name: 'Beat the Miner' })).toBeVisible()
   await expect(page.getByText("1 friend has played today. Finish your block to see today's scores.")).toBeVisible()
+  // Today's seed block and its players, and the last 7 games in a popup.
+  await expect(page.getByText(/^Current block [\d,]+ has [\d,]+ players?/)).toBeVisible()
+  await expect(page.getByText(/^Today's game ends at .+ your time \(midnight UTC\)\.$/)).toBeVisible()
+  await page.getByRole('button', { name: 'View last 7 games' }).click()
+  const games = page.getByRole('table', { name: 'The last 7 games' })
+  await expect(games.getByRole('row')).toHaveCount(8)
+  await expect(games.getByRole('row').nth(1)).toContainText(today())
+  await page.getByRole('button', { name: 'Close' }).click()
+  await expect(games).toHaveCount(0)
 
   // Alice takes everything she can, as the app allows it.
   const rules = minerRules(deal)
