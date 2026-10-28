@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from 'workbox-precaching'
 import { NavigationRoute, registerRoute } from 'workbox-routing'
+import { inApp } from './lib/inApp'
 
 // The app's service worker: offline app shell (as before) plus push notifications
 // from a Silvamor push service (push/).
@@ -41,10 +42,11 @@ self.addEventListener('push', (event) => {
   )
 })
 
-// Tapping a notification opens Silvamor: in an open Silvamor window if there is one.
+// Tapping a notification opens Silvamor: in an open Silvamor window if there is one. Only ever
+// Silvamor, whatever link the push service sent.
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
-  const url = new URL((event.notification.data as { url?: string })?.url ?? '/', self.location.origin).href
+  const url = inApp((event.notification.data as { url?: string })?.url, self.location.origin)
   event.waitUntil(
     (async () => {
       const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
