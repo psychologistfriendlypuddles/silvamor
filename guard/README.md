@@ -10,7 +10,7 @@ A small companion to relay.silvamor.com (nostr-rs-relay). It does these jobs:
   day or before 02:00 UTC the day after), so a past day can't be played later; a run claiming an
   N-day streak needs the player's run for the day before, stored here, to claim N − 1 (the guard
   reads it from the relay's database; [docs/PROTOCOL.md](../docs/PROTOCOL.md), "Streaks"). Runs also have to
-  stay under 8 KB; reports must be about a sprite, with a
+  stay under 4 KB; reports must be about a sprite, with a
   note of at most 83 characters and 1 KB in all (reports are kept for good); kind-30078 settings
   must be Silvamor's own (`d` tag starting `silvamor/`); sprites must be valid Silvamor sprites.
   Follow lists come from any Nostr app and can be long, so they only get a 256 KB cap.

@@ -35,7 +35,7 @@ event_kind_allowlist = [
 ]
 
 # Room for follow lists of up to about 3,500 people (~72 bytes each). The guard holds every
-# other kind far smaller (a run 8 KB, a report 1 KB; see guard/src/policy.ts).
+# other kind far smaller (a run 4 KB, a report 1 KB; see guard/src/policy.ts).
 max_event_bytes = 262144
 max_ws_message_bytes = 524288
 max_ws_frame_bytes = 524288

@@ -25,8 +25,8 @@ export const DISCOVERY_RELAYS = OVERRIDE ? DEFAULT_RELAYS : ['wss://purplepag.es
 export const GAME_RELAYS = [HOME_RELAY]
 
 // Relays commonly used by NIP-46 remote signers (Amber, nsec.app, ...). Several, so the
-// login keeps working when one is down. (relay.silvamor.com is whitelisted, so signers
-// couldn't publish their replies there.)
+// login keeps working when one is down. (relay.silvamor.com keeps only Silvamor's own kinds,
+// so signers couldn't send their replies through it.)
 export const NIP46_RELAYS = OVERRIDE ?? ['wss://relay.nsec.app', 'wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net']
 
 export function normalizeRelayUrl(input: string): string | null {
