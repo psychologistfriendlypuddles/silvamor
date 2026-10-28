@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { OSTRICH, animationFor, buildSprite, buildSpriteChoice, parseManifest, parseSprite, parseSpriteChoice, sheetSize } from './sprites'
+import { ANIMATIONS, OSTRICH, animationFor, buildSprite, buildSpriteChoice, parseManifest, parseSprite, parseSpriteChoice, sheetFits, sheetSize } from './sprites'
 
 const minimal = { version: 1, size: 64, animations: { idle: { row: 0, frames: 2, fps: 4 } } }
 
@@ -18,15 +18,34 @@ describe('sprite manifests', () => {
     expect(() => parseManifest({ ...minimal, animations: { idle: { row: 0, frames: 1, fps: 1 }, dance: { row: 1, frames: 1, fps: 1 } } })).toThrow(/Unknown/)
     expect(() => parseManifest({ ...minimal, animations: { idle: { row: 0, frames: 1, fps: 1 }, sad: { row: 0, frames: 1, fps: 1 } } })).toThrow(/share row/)
     expect(() => parseManifest({ ...minimal, animations: { idle: { row: 0, frames: 40, fps: 1 } } })).toThrow(/frames/)
+    expect(() => parseManifest({ ...minimal, animations: { idle: { row: 11, frames: 1, fps: 1 } } })).toThrow(/row from 0 to 10/)
   })
 
   it('sizes the sheet from the longest row and the last row', () => {
     expect(sheetSize(OSTRICH.manifest)).toEqual({ width: 64 * 6, height: 64 * 11 })
   })
 
-  it('the generated ostrich sheet matches its manifest', () => {
-    const png = readFileSync(new URL('../../public/sprites/ostrich.png', import.meta.url))
-    expect({ width: png.readUInt32BE(16), height: png.readUInt32BE(20) }).toEqual(sheetSize(OSTRICH.manifest))
+  it('takes a sheet from what its animations use up to 16 frames by 11 rows, and no bigger', () => {
+    const m = parseManifest(minimal)
+    expect(sheetFits(m, 128, 64)).toBe(true)
+    expect(sheetFits(m, 1024, 704)).toBe(true)
+    expect(sheetFits(m, 127, 64)).toBe(false)
+    expect(sheetFits(m, 1025, 704)).toBe(false)
+    expect(sheetFits(m, 1024, 705)).toBe(false)
+    expect(sheetFits(m, 30_000, 30_000)).toBe(false)
+  })
+
+  it('the generated ostrich sheet matches its manifest, and the template suits 128px frames', () => {
+    const size = (path: string) => {
+      const png = readFileSync(new URL(path, import.meta.url))
+      return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) }
+    }
+    const ostrich = size('../../public/sprites/ostrich.png')
+    expect(ostrich).toEqual(sheetSize(OSTRICH.manifest))
+    expect(sheetFits(OSTRICH.manifest, ostrich.width, ostrich.height)).toBe(true)
+    const template = size('../../public/sprites/template.png')
+    const allRows = parseManifest({ version: 1, size: 128, animations: Object.fromEntries(ANIMATIONS.map((name, row) => [name, { row, frames: 4, fps: 4 }])) })
+    expect(sheetFits(allRows, template.width, template.height)).toBe(true)
   })
 
   it('falls back for missing moods: win → happy → idle, lose → sad → idle', () => {

@@ -32,6 +32,8 @@ export const MOOD_FALLBACK: Record<SpriteMood, SpriteMood | null> = {
 export const MIN_FRAME = 32
 export const MAX_FRAME = 256
 export const MAX_FRAMES_PER_ROW = 16
+/** One row per animation name at most: rows 0 to 10. */
+export const MAX_ROWS = ANIMATIONS.length
 export const MAX_FPS = 30
 export const MAX_SHEET_BYTES = 1024 * 1024
 
@@ -76,8 +78,8 @@ export function parseManifest(value: unknown): SpriteManifest {
   const rows = new Set<number>()
   for (const [name, a] of Object.entries(m.animations)) {
     if (!(ANIMATIONS as readonly string[]).includes(name)) throw new Error(`Unknown animation "${name}".`)
-    if (!a || !isInt(a.row, 0, 63) || !isInt(a.frames, 1, MAX_FRAMES_PER_ROW) || !isInt(a.fps, 1, MAX_FPS)) {
-      throw new Error(`"${name}" needs a row, 1-${MAX_FRAMES_PER_ROW} frames and 1-${MAX_FPS} fps.`)
+    if (!a || !isInt(a.row, 0, MAX_ROWS - 1) || !isInt(a.frames, 1, MAX_FRAMES_PER_ROW) || !isInt(a.fps, 1, MAX_FPS)) {
+      throw new Error(`"${name}" needs a row from 0 to ${MAX_ROWS - 1}, 1-${MAX_FRAMES_PER_ROW} frames and 1-${MAX_FPS} fps.`)
     }
     if (rows.has(a.row)) throw new Error(`Two animations share row ${a.row}.`)
     rows.add(a.row)
@@ -91,6 +93,16 @@ export function parseManifest(value: unknown): SpriteManifest {
 export function sheetSize(m: SpriteManifest) {
   const all = Object.values(m.animations)
   return { width: m.size * Math.max(...all.map((a) => a.frames)), height: m.size * (Math.max(...all.map((a) => a.row)) + 1) }
+}
+
+/**
+ * Whether a sheet of `width`×`height` pixels suits its manifest: big enough for its animations, and
+ * no bigger than the standard allows at its frame size (16 frames by 11 rows), so no sprite can make
+ * a phone decode a huge picture.
+ */
+export function sheetFits(m: SpriteManifest, width: number, height: number) {
+  const need = sheetSize(m)
+  return width >= need.width && height >= need.height && width <= m.size * MAX_FRAMES_PER_ROW && height <= m.size * MAX_ROWS
 }
 
 /** The animation to play for a mood, following fallbacks for moods the sprite doesn't have. */

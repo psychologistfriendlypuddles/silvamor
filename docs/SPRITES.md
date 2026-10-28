@@ -15,7 +15,8 @@ guides only: hide them before exporting, so the finished sheet has a transparent
 - **PNG** with a transparent background, at most **1 MB**.
 - Frames are **square**, `size` pixels a side, from **32 to 256**.
 - **One row per animation**, frames left to right, up to **16 frames** per row. The sheet is as
-  wide as the longest row and as tall as the last row used; extra space is ignored.
+  wide as the longest row and as tall as the last row used; extra space is ignored, up to 16 frames
+  wide and 11 rows tall. Clients don't show a bigger sheet: decoded, it could take a phone's memory.
 - Draw the character **facing right**. Clients may mirror it to face left.
 - Keep the feet on the same line in every frame (the template's pink line, about 92% down) and the
   character roughly centred, so mirroring and swapping animations don't make it jump.
@@ -61,7 +62,7 @@ see the first frame of each mood.
 
 - `size`: frame size in pixels.
 - `pixelated`: `true` scales the sheet up with hard edges (pixel art); otherwise it's smoothed.
-- `animations`: any of the names above, each with its `row` (0-based), `frames` (1–16) and `fps`
+- `animations`: any of the names above, each with its `row` (0–10), `frames` (1–16) and `fps`
   (1–30). Rows can be in any order but can't be shared. Unknown names are rejected.
 
 ## On Nostr

@@ -6,10 +6,13 @@ import {
   ANIMATIONS,
   BUILTIN_SPRITES,
   EVENTS,
+  MAX_FRAMES_PER_ROW,
+  MAX_ROWS,
   MAX_SHEET_BYTES,
   MOODS,
   buildSprite,
   parseManifest,
+  sheetFits,
   sheetSize,
   type AnimationName,
   type Sprite,
@@ -202,6 +205,10 @@ export function SpriteMaker({ onDone }: { onDone(sprite: Sprite | null): void })
     const need = sheetSize(manifest)
     if (dims && (dims.width < need.width || dims.height < need.height)) {
       return { manifest, error: `The manifest needs a sheet of at least ${need.width}×${need.height}px; this one is ${dims.width}×${dims.height}px.` }
+    }
+    if (dims && !sheetFits(manifest, dims.width, dims.height)) {
+      const [width, height] = [manifest.size * MAX_FRAMES_PER_ROW, manifest.size * MAX_ROWS]
+      return { manifest, error: `With ${manifest.size}px frames a sheet can be at most ${width}×${height}px (16 frames by 11 rows); this one is ${dims.width}×${dims.height}px.` }
     }
     return { manifest }
   }, [manifestText, file, dims])
