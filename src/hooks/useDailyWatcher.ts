@@ -69,5 +69,5 @@ async function announce(notice: Notice) {
   await useProfiles.getState().fetch(notice.actor).catch(() => {})
   const name = displayName(useProfiles.getState().profiles[notice.actor]?.content, nip19.npubEncode(notice.actor))
   const { emoji, text } = noticeText(notice, name)
-  toast.info(`${emoji} ${text}`, '/')
+  toast.info(`${emoji} ${text}`, '/daily-deal')
 }

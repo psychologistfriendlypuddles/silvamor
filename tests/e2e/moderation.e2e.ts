@@ -25,7 +25,7 @@ test('featuring a sprite, and hiding its artist (until unhidden)', async ({ brow
   await bob.page.getByRole('button', { name: 'Hide artist' }).click()
   await expect(bob.page.getByText('Hid sprites by Alice')).toBeVisible()
   await expect(bob.page.getByRole('button', { name, exact: true })).toHaveCount(0)
-  await goTo(bob, '/')
+  await goTo(bob, '/daily-deal')
   await expect(bob.page.getByRole('list', { name: 'Podium' }).getByRole('img', { name: /^Ostrich / })).toHaveCount(2)
 
   // Unhiding from the safety sheet brings them back.
@@ -33,7 +33,7 @@ test('featuring a sprite, and hiding its artist (until unhidden)', async ({ brow
   await bob.page.getByRole('button', { name: 'Shop safety' }).click()
   await bob.page.getByRole('button', { name: 'Unhide' }).click()
   await bob.page.getByRole('button', { name: 'Close safety' }).click()
-  await goTo(bob, '/')
+  await goTo(bob, '/daily-deal')
   await expect(bob.page.getByRole('img', { name: new RegExp(`^${name} \\((win|happy)\\)$`) })).toBeVisible()
   expectNoErrors(alice, bob)
 })
@@ -61,7 +61,7 @@ test('three reports from people you follow blur a sprite, unless you turn that o
   await carol.page.getByRole('button', { name: 'All', exact: true }).click()
   const card = carol.page.getByRole('button', { name, exact: true })
   await expect(card.getByText('Reported')).toBeVisible()
-  await goTo(carol, '/')
+  await goTo(carol, '/daily-deal')
   await expect(carol.page.getByRole('list', { name: 'Podium' }).getByRole('img', { name: /^Ostrich / })).toHaveCount(2)
 
   // Dave follows only Alice: the same reports don't affect him.
@@ -73,7 +73,7 @@ test('three reports from people you follow blur a sprite, unless you turn that o
   await carol.page.getByRole('button', { name: 'Shop safety' }).click()
   await carol.page.getByLabel(/Blur reported sprites/).uncheck()
   await carol.page.getByRole('button', { name: 'Close safety' }).click()
-  await goTo(carol, '/')
+  await goTo(carol, '/daily-deal')
   await expect(carol.page.getByRole('img', { name: onAlice })).toBeVisible()
   expectNoErrors(alice, carol, dave)
 })

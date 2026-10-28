@@ -5,6 +5,8 @@
 //   GET  /api/blocks/tip/height   -> current height (start the app with
 //                                    VITE_BLOCK_SOURCES=http://localhost:7777/api/blocks/tip/height)
 //   GET  /api/blocks/<height>     -> up to 10 blocks from <height> down (hash and timestamp, as Esplora)
+//   GET  /api/block/<hash>        -> its transaction count (200)
+//   GET  /api/block/<hash>/txs/<start> -> 25 made-up transactions from <start> (fee, weight, inputs)
 //   POST /mine?blocks=N           -> "mines" N blocks (default 1)
 //
 // And a pretend Lightning provider, so every `<name>@localhost:<port>` is a zappable
@@ -28,6 +30,23 @@ import { matchFilters } from 'nostr-tools/filter'
 const isReplaceable = (k) => k === 0 || k === 3 || (k >= 10000 && k < 20000)
 const isAddressable = (k) => k >= 30000 && k < 40000
 const dTag = (e) => e.tags.find((t) => t[0] === 'd')?.[1] ?? ''
+
+// Every block holds this many made-up transactions.
+const TX_COUNT = 200
+const txid = (hash, i) => createHash('sha256').update(`${hash}:${i}`).digest('hex')
+
+/** Transaction `i` of block `hash`: fees and sizes that vary, and every eighth spends from the one before. */
+function transaction(hash, i) {
+  const n = parseInt(txid(hash, i).slice(0, 8), 16)
+  const vsize = 110 + (n % 600)
+  const parent = i % 8 === 7 ? txid(hash, i - 1) : txid(hash, `outside-${i}`)
+  return {
+    txid: txid(hash, i),
+    fee: i === 0 ? 0 : vsize * (1 + ((n >>> 10) % 40)),
+    weight: vsize * 4,
+    vin: i === 0 ? [{ txid: '0'.repeat(64), is_coinbase: true }] : [{ txid: parent, is_coinbase: false }],
+  }
+}
 
 export function startDevRelay({ port = 7777, blockHeight = 800_000 } = {}) {
   const events = new Map() // id -> event
@@ -173,6 +192,17 @@ export function startDevRelay({ port = 7777, blockHeight = 800_000 } = {}) {
       const top = Math.min(Number(blocksFrom[1]), height)
       res.setHeader('Content-Type', 'application/json')
       return res.end(JSON.stringify(Array.from({ length: Math.max(0, Math.min(10, top)) }, (_, i) => block(top - i))))
+    }
+    const blockInfo = url.pathname.match(/^\/api\/block\/([0-9a-f]{64})$/)
+    if (req.method === 'GET' && blockInfo) {
+      res.setHeader('Content-Type', 'application/json')
+      return res.end(JSON.stringify({ id: blockInfo[1], tx_count: TX_COUNT }))
+    }
+    const txPage = url.pathname.match(/^\/api\/block\/([0-9a-f]{64})\/txs\/(\d+)$/)
+    if (req.method === 'GET' && txPage) {
+      const start = Number(txPage[2])
+      res.setHeader('Content-Type', 'application/json')
+      return res.end(JSON.stringify(Array.from({ length: Math.max(0, Math.min(25, TX_COUNT - start)) }, (_, i) => transaction(txPage[1], start + i))))
     }
     if (req.method === 'POST' && url.pathname === '/mine') return res.end(String(mine(Number(url.searchParams.get('blocks') ?? 1))))
     res.statusCode = 404

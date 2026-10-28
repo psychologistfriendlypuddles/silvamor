@@ -4,6 +4,8 @@ import { dayStart } from '../../src/games/dailydeal/daily'
 import { FEATURED_D, MAX_REPORT_NOTE } from '../../src/lib/moderation'
 import { parseSprite } from '../../src/lib/sprites'
 import type { Block } from '../../src/lib/bitcoin'
+import { parseMinerRun, verifyMinerRun } from '../../src/lib/nostr/minerRuns'
+import type { MinerDeal } from '../../src/games/miner/rules'
 
 // What relay.silvamor.com accepts (docs/DEPLOY.md, "Relays"). The relay's own config already
 // refuses other kinds and oversized events; this adds the checks a config file can't express.
@@ -30,6 +32,7 @@ const KINDS: Record<number, { maxBytes: number; wrong?: (e: Event) => string | n
   5: { maxBytes: 2_048, wrong: (e) => (e.tags.some((t) => t[0] === 'a' || t[0] === 'e') ? null : 'a deletion names what it deletes') },
   62: { maxBytes: 2_048 }, // request to vanish (NIP-62): checked against this relay's address below
   1952: { maxBytes: 8_192 },
+  1953: { maxBytes: 4_096 }, // Beat the Miner runs: checked by replaying them below
   1984: {
     maxBytes: 1_024,
     wrong: (e) =>
@@ -56,6 +59,8 @@ export interface Decision {
 export interface PolicyOptions {
   /** The first Bitcoin block at or after `time` (unix seconds): a day's seed block. Null until mined. */
   findBlock(time: number): Promise<Block | null>
+  /** A day's Beat the Miner deal, read from its seed block's transactions. */
+  findDeal?(day: string, block: Block): Promise<MinerDeal>
   /** Events one author may publish per minute. */
   perMinute: number
   /**
@@ -133,6 +138,27 @@ export function createPolicy(opts: PolicyOptions) {
     return permit
   }
 
+  const deals = new Map<string, MinerDeal>()
+
+  async function checkMinerRun(event: Event): Promise<Decision> {
+    const run = parseMinerRun(event)
+    if (!run) return deny('not a Beat the Miner run')
+    let block: Block | null
+    let deal: MinerDeal | undefined
+    try {
+      block = await dayBlock(run.day)
+      if (block && opts.findDeal && !deals.has(run.day)) deals.set(run.day, await opts.findDeal(run.day, block))
+      deal = deals.get(run.day)
+    } catch (err) {
+      // Block sources down: let it in rather than lose a real run (clients check runs anyway).
+      log(`no block source for ${run.day}, admitting run ${event.id}: ${err instanceof Error ? err.message : err}`)
+      return permit
+    }
+    if (!block) return deny(`no Beat the Miner for ${run.day} yet`)
+    if (!deal) return permit
+    return verifyMinerRun(run, block, deal, null) ? permit : deny("the run doesn't replay to its fees")
+  }
+
   return {
     /** `from.ip`: the sender's address, as the relay saw it (absent when it doesn't say). */
     async decide(event: Event, from: { ip?: string } = {}): Promise<Decision> {
@@ -154,6 +180,7 @@ export function createPolicy(opts: PolicyOptions) {
         return deny(`a request to vanish here names ${opts.relayUrl}`)
       }
       if (event.kind === 1952) return checkRun(event)
+      if (event.kind === 1953) return checkMinerRun(event)
       return permit
     },
   }

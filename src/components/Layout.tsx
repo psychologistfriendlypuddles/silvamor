@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import { NavLink, useLocation, useOutlet } from 'react-router'
 import { AnimatePresence, motion } from 'motion/react'
-import { Bell, LogOut, Radio, Spade, Store, UserRound, UsersRound } from 'lucide-react'
+import { Bell, LogOut, Pickaxe, Radio, Spade, Store, UserRound, UsersRound } from 'lucide-react'
 import { useSession } from '../stores/session'
 import { useLoadModeration } from '../stores/moderation'
 import { GitHubLink, LegalLinks } from './LegalLinks'
@@ -13,10 +13,11 @@ import { Spinner } from './ui'
 import { useUnreadCount } from '../stores/notifications'
 
 const NAV = [
-  { to: '/', label: 'Daily Deal', icon: Spade, color: 'text-lemon' },
+  { to: '/', label: 'Miner', full: 'Beat the Miner', icon: Pickaxe, color: 'text-lemon' },
+  { to: '/daily-deal', label: 'Daily Deal', icon: Spade, color: 'text-bubblegum' },
   { to: '/sprites', label: 'Sprites', icon: Store, color: 'text-grape' },
   { to: '/groups', label: 'Groups', icon: UsersRound, color: 'text-tangerine' },
-  { to: '/notifications', label: 'Alerts', icon: Bell, color: 'text-bubblegum' },
+  { to: '/notifications', label: 'Alerts', full: 'Notifications', icon: Bell, color: 'text-bubblegum' },
   { to: '/relays', label: 'Relays', icon: Radio, color: 'text-mint' },
   // On phones the avatar in the header is the way to the profile, so no bottom tab.
   { to: '/profile', label: 'Profile', icon: UserRound, color: 'text-sky', desktopOnly: true },
@@ -43,7 +44,7 @@ export function Layout() {
                     <motion.span layoutId="rail-active" className="absolute inset-0 -z-10 rounded-2xl bg-white/10" transition={{ type: 'spring', stiffness: 500, damping: 35 }} />
                   )}
                   <item.icon className={`size-5 ${isActive ? item.color : ''}`} />
-                  {item.label === 'Alerts' ? 'Notifications' : item.label}
+                  {item.full ?? item.label}
                   {item.to === '/notifications' && <UnreadBadge />}
                 </span>
               )}
@@ -101,7 +102,7 @@ export function Layout() {
       </div>
 
       {/* Mobile bottom tabs */}
-      <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-white/10 bg-night-950/85 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-6 border-t border-white/10 bg-night-950/85 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur md:hidden">
         {NAV.filter((item) => !item.desktopOnly).map((item) => (
           <NavLink key={item.to} to={item.to} end>
             {({ isActive }) => (

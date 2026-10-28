@@ -112,7 +112,7 @@ export function createWatchtower(opts: WatchtowerOptions) {
   function toPayload(notice: Notice): PushPayload {
     const name = displayName(profiles.get(notice.actor), nip19.npubEncode(notice.actor))
     const { emoji, text } = noticeText(notice, name)
-    return { title: 'Silvamor', body: `${emoji} ${text}`, url: `${opts.appUrl}/`, tag: `dailydeal:${notice.day}` }
+    return { title: 'Silvamor', body: `${emoji} ${text}`, url: `${opts.appUrl}/daily-deal`, tag: `dailydeal:${notice.day}` }
   }
 
   async function loadProfiles(pubkeys: string[]) {

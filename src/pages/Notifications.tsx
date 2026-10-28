@@ -60,7 +60,7 @@ function NoticeRow({ notice }: { notice: StoredNotice }) {
       exit={{ opacity: 0 }}
       onClick={() => {
         markRead(notice.id)
-        navigate('/')
+        navigate('/daily-deal')
       }}
       className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition-colors ${
         notice.read ? 'border-white/5 bg-night-900/50 text-white/60' : 'border-grape/40 bg-grape/10 text-white'

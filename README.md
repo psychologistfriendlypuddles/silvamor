@@ -7,12 +7,23 @@ as a Progressive Web App (no app stores). Players log in with their Nostr key, p
 their friends did. Every move is a signed Nostr event that any client can replay and check, so there
 is no game server.
 
-The first game is **Daily Deal**, a one-player card run where everyone gets the same deal each day.
-More games are planned.
+The main game is **Beat the Miner**: real transactions from the day's first Bitcoin block arrive one
+by one, and you fill a block with more fees than the miner. **Daily Deal**, a one-player card run,
+is the other daily game. Everyone gets the same game each day.
 
 ## Features
 
-**Daily Deal** (the first game)
+**Beat the Miner** (the main game)
+- Each day, 30 real transactions from the first Bitcoin block after midnight UTC arrive one at a
+  time; take each into your block or pass on it for good. Children only go in with their parent
+- The block is found at a moment nobody knows in advance (between the 18th and 30th transaction),
+  so filling up early is safe but may miss richer transactions later
+- The miner plays the same stream by fee rate; you see its total live and try to beat it. After the
+  block is found you also see the best block that was possible
+- Your first block of the day is published to Nostr (kind 1953); clients and the relay replay it to
+  check the fees. Same leaderboards, podium and share note as Daily Deal
+
+**Daily Deal**
 - A one-player poker-hands run: 8 cards in hand, 4 hands to play and 3 discards, plus three of the
   day's perks that boost certain hands
 - Everyone gets the same deck and perks, shuffled by the first Bitcoin block after midnight UTC, so

@@ -83,3 +83,63 @@ export async function findFirstBlockAfter(time: number, sources = BLOCK_SOURCES)
   }
   throw error
 }
+
+/** One of a block's transactions, as Esplora lists them. */
+export interface ListedTx {
+  txid: string
+  /** Sats. */
+  fee: number
+  weight: number
+  /** The transactions it spends from. */
+  inputs: string[]
+  coinbase: boolean
+}
+
+async function fromSources<T>(sources: string[], ask: (base: string) => Promise<T>): Promise<T> {
+  let error: unknown = new Error('No block source')
+  for (const source of sources) {
+    const base = apiBase(source)
+    if (!base) continue
+    try {
+      return await ask(base)
+    } catch (err) {
+      error = err
+    }
+  }
+  throw error
+}
+
+async function getJson(url: string): Promise<unknown> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) })
+  if (!res.ok) throw new Error(`${url}: ${res.status}`)
+  return res.json()
+}
+
+/** How many transactions block `hash` holds. */
+export function fetchTxCount(hash: string, sources = BLOCK_SOURCES): Promise<number> {
+  return fromSources(sources, async (base) => {
+    const count = (await getJson(`${base}/block/${hash}`)) as { tx_count?: unknown }
+    if (!Number.isSafeInteger(count.tx_count)) throw new Error(`${base}: no transaction count`)
+    return count.tx_count as number
+  })
+}
+
+/** The 25 transactions of block `hash` from position `start` (a multiple of 25). */
+export function fetchTxPage(hash: string, start: number, sources = BLOCK_SOURCES): Promise<ListedTx[]> {
+  return fromSources(sources, async (base) => {
+    const list = await getJson(`${base}/block/${hash}/txs/${start}`)
+    if (!Array.isArray(list)) throw new Error(`${base}: not a transaction list`)
+    return list.map((t: { txid?: unknown; fee?: unknown; weight?: unknown; vin?: { txid?: unknown; is_coinbase?: unknown }[] }) => {
+      if (typeof t.txid !== 'string' || !/^[0-9a-f]{64}$/.test(t.txid) || !Number.isSafeInteger(t.fee) || !Number.isSafeInteger(t.weight) || !Array.isArray(t.vin)) {
+        throw new Error(`${base}: bad transaction`)
+      }
+      return {
+        txid: t.txid,
+        fee: t.fee as number,
+        weight: t.weight as number,
+        inputs: t.vin.map((v) => v.txid).filter((id): id is string => typeof id === 'string'),
+        coinbase: t.vin.some((v) => v.is_coinbase === true),
+      }
+    })
+  })
+}

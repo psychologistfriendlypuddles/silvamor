@@ -25,6 +25,7 @@ event_kind_allowlist = [
   5,      # deleting a group
   62,     # requests to vanish: "Delete my data" on the Profile page (the guard does the deleting)
   1952,   # Daily Deal runs
+  1953,   # Beat the Miner runs
   1984,   # sprite reports
   9735,   # zap receipts for tips (published by the recipient's Lightning provider)
   10002,  # relay lists

@@ -55,6 +55,7 @@ function fakeSignerApp(delayMs: number, opts: { ignoreSigning?: boolean } = {}) 
 
 /** Plays today's Daily Deal to the end, a card at a time; the app then publishes the run. */
 async function playThrough(page: Page) {
+  await page.getByRole('link', { name: 'Daily Deal' }).first().click()
   const hands = page.getByLabel('Hands', { exact: true })
   await expect(hands).toBeVisible({ timeout: 15_000 })
   for (let left = Number(await hands.textContent()); left > 0; left--) {

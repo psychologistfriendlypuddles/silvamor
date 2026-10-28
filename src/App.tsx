@@ -18,6 +18,7 @@ const page = <K extends string>(load: () => Promise<Record<K, React.ComponentTyp
 const LoginPage = page(() => import('./pages/Login'), 'LoginPage')
 const UnlockPage = page(() => import('./pages/Unlock'), 'UnlockPage')
 const DailyPage = page(() => import('./pages/Daily'), 'DailyPage')
+const MinerPage = page(() => import('./pages/Miner'), 'MinerPage')
 const GroupsPage = page(() => import('./pages/Groups'), 'GroupsPage')
 const ProfilePage = page(() => import('./pages/Profile'), 'ProfilePage')
 const RelaysPage = page(() => import('./pages/Relays'), 'RelaysPage')
@@ -81,7 +82,8 @@ export default function App() {
         {status === 'signedIn' && (
           <Routes>
             <Route element={<Layout />}>
-              <Route index element={<DailyPage />} />
+              <Route index element={<MinerPage />} />
+              <Route path="daily-deal" element={<DailyPage />} />
               <Route path="groups" element={<GroupsPage />} />
               <Route path="sprites" element={<SpriteShopPage />} />
               <Route path="notifications" element={<NotificationsPage />} />

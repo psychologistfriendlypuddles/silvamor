@@ -4,6 +4,7 @@ import protobuf from 'protobufjs'
 import { bytesToHex } from 'nostr-tools/utils'
 import type { Event } from 'nostr-tools/pure'
 import { findFirstBlockAfter } from '../../src/lib/bitcoin'
+import { fetchDeal } from '../../src/games/miner/deal'
 import { createPolicy, type Policy } from './policy'
 import { VANISH_KIND, erase, parseRetention, prune, storedStreaks, vanishRequests, type Retention } from './cleanup'
 import nauthzProto from '../proto/nauthz.proto?raw'
@@ -13,11 +14,11 @@ import nauthzProto from '../proto/nauthz.proto?raw'
 // relay's database, and it deletes everything from a key that asks to vanish. See guard/README.md.
 
 /**
- * What the privacy policy promises (src/pages/Legal.tsx, "Our relay"): runs and tip receipts are
+ * What the privacy policy promises (src/pages/Legal.tsx, "Our relay"): game runs and tip receipts are
  * deleted after 30 days; sprite reports are kept so moderation keeps working. Replaceable events
  * need no rule: the relay keeps only the newest.
  */
-export const DEFAULT_RETENTION = '1952:30,9735:30'
+export const DEFAULT_RETENTION = '1952:30,1953:30,9735:30'
 
 export interface GuardConfig {
   /** Where to listen for the relay, e.g. 0.0.0.0:50051. */
@@ -101,6 +102,7 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
     deps.policy ??
     createPolicy({
       findBlock: (t) => findFirstBlockAfter(t, config.blockSources),
+      findDeal: (day, block) => fetchDeal(day, block, config.blockSources),
       perMinute: config.perMinute,
       perIpMinute: config.perIpMinute,
       perIpDay: config.perIpDay,

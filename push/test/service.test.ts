@@ -144,7 +144,7 @@ describe('watchtower', () => {
     await publish(carolSk, runEvent(strong, [guest]))
     await vi.waitFor(() => expect(sent).toHaveLength(1), { timeout: 5000 })
     expect(sent[0].endpoint).toBe(subscription(10).endpoint)
-    expect(sent[0].payload).toMatchObject({ url: 'https://app.example/', tag: `dailydeal:${day}` })
+    expect(sent[0].payload).toMatchObject({ url: 'https://app.example/daily-deal', tag: `dailydeal:${day}` })
     expect(sent[0].payload.body).toMatch(new RegExp(`^🃏 .+ beat your Daily Deal score with ${strong.score.toLocaleString('en-US')}$`))
 
     // Each notice goes out once.

@@ -80,7 +80,7 @@ export function TermsPage({ standalone }: { standalone?: boolean }) {
 
       <Section title="1. What Silvamor is (and isn’t)">
         <p>
-          Silvamor is software for playing games over Nostr, an open, public network of independent relays. It shows Daily Deal runs, leaderboards and other
+          Silvamor is software for playing games over Nostr, an open, public network of independent relays. It shows game runs, leaderboards and other
           events that people sign with their own keys and publish to relays. We don’t run a game server and we don’t hold accounts. We run one relay,
           relay.silvamor.com, which stores Silvamor’s events so leaderboards work, and we decide what it accepts and how long it keeps it (see the
           privacy policy). We don’t control other relays, other Nostr apps, or what people publish.
@@ -91,7 +91,7 @@ export function TermsPage({ standalone }: { standalone?: boolean }) {
             with it. Keep it safe.
           </li>
           <li>
-            <b>Events are public and permanent.</b> Daily Deal runs, profiles, sprites, reports and payment receipts are published to public relays
+            <b>Events are public and permanent.</b> Game runs, profiles, sprites, reports and payment receipts are published to public relays
             and can be copied by anyone. Deleting from Silvamor or asking relays to delete may not remove every copy.
           </li>
           <li>
@@ -128,7 +128,7 @@ export function TermsPage({ standalone }: { standalone?: boolean }) {
       <Section title="4. No betting">
         <p>
           Silvamor doesn’t offer wagers or any way to bet on games, and it isn’t a gambling service. Don’t use it, including its tips, to arrange
-          bets. Daily Deal scores and leaderboard places win nothing and aren’t prizes; don’t bet on them.
+          bets. Game scores and leaderboard places win nothing and aren’t prizes; don’t bet on them.
         </p>
       </Section>
 
@@ -226,7 +226,7 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
 
       <Section title="1. What’s public on Nostr">
         <p>
-          Everything you publish through Silvamor is a signed Nostr event sent to public relays: your profile, follow list and relay list, your Daily Deal runs (every move
+          Everything you publish through Silvamor is a signed Nostr event sent to public relays: your profile, follow list and relay list, your game runs (Beat the Miner and Daily Deal: every move
           and the score, so anyone can see how you played), groups, sprites and sprite choices, reports, featured picks, and zap receipts for tips. Anyone can read, copy and keep these, and
           they’re tied to your public key. Don’t publish anything you want kept private.
         </p>
@@ -238,7 +238,7 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
           <li>your login: your public key, plus, if you chose to be remembered, your private key encrypted with your password (NIP-49);</li>
           <li>a device key used only to talk to your signer app;</li>
           <li>your relay list, notification history and settings, and a cached copy of your shop settings;</li>
-          <li>your Daily Deal run in progress, and the Bitcoin block that seeded the day’s deal;</li>
+          <li>your game runs in progress, the Bitcoin block that seeded the day’s games, and the day’s Beat the Miner transactions;</li>
           <li>if you connect one, your wallet connection (Nostr Wallet Connect).</li>
         </ul>
         <p>
@@ -272,11 +272,11 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
           </li>
           <li>
             <b>Push notifications (optional).</b> If you turn them on, the push service stores your public key, your browser’s push address, and which
-            notices it has already sent you. To decide when to notify you, it reads public Daily Deal runs and follow lists. Your browser’s push
+            notices it has already sent you. To decide when to notify you, it reads public game runs and follow lists. Your browser’s push
             provider (such as Google, Apple or Mozilla) delivers the notifications. Turning notifications off deletes your push address.
           </li>
           <li>
-            <b>Our relay.</b> Silvamor always publishes your Daily Deal runs, profile, follow list, relay list, groups, sprites, sprite choices,
+            <b>Our relay.</b> Silvamor always publishes your game runs, profile, follow list, relay list, groups, sprites, sprite choices,
             reports and tip receipts to relay.silvamor.com, which we run, as well as to the relays you choose. We use them to show leaderboards and
             send notifications. Runs and tip receipts are deleted after <b>30 days</b>. Sprite reports are kept so moderation keeps working. Profiles,
             follow lists, relay lists, groups, sprites and settings are kept only in their latest version: a newer one replaces the old, and they’re

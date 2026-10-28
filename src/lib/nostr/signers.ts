@@ -101,6 +101,7 @@ export const NIP46_PERMS = [
   'sign_event:1', // sharing a Daily Deal score as a note
   'sign_event:5', // delete a group
   'sign_event:1952', // Daily Deal runs
+  'sign_event:1953', // Beat the Miner runs
   'sign_event:1984', // report a sprite
   'sign_event:9734', // zap requests: tipping a player or an artist
   'sign_event:10002', // relay list

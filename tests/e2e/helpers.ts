@@ -5,6 +5,7 @@ import * as nip19 from 'nostr-tools/nip19'
 import { readFileSync } from 'node:fs'
 import { createHash, randomBytes } from 'node:crypto'
 import { MAX_CARDS, dailyDealRules, scorePlay, type DailyDealMove, type DailyDealState } from '../../src/games/dailydeal/rules'
+import { dealFrom, minerSeed, pageStarts, type BlockTx } from '../../src/games/miner/rules'
 
 export const RELAY = 'ws://localhost:7777'
 
@@ -200,7 +201,7 @@ export async function onPodium(browser: Browser, name: string, friends: string[]
   const player = await newPlayer(browser, name, opts)
   await seed(followsEvent(player.sk, friends))
   await publishRun(player.sk)
-  await login(player)
+  await login(player, '/daily-deal')
   await expect(player.page.getByRole('list', { name: 'Podium' })).toBeVisible()
   return player
 }
@@ -249,4 +250,37 @@ export async function publishSprite(player: Player, name: string) {
   await expect(page.getByText(`${name} is now your sprite ✨`)).toBeVisible()
   await page.getByRole('button', { name: 'Close sprite', exact: true }).click()
   return spriteIdByTitle(player.pubkey, name)
+}
+
+// --- Beat the Miner ---
+
+/** Today's Beat the Miner deal, read from the test relay's made-up block the way the app reads it. */
+export async function todaysDeal() {
+  const block = await dayBlock()
+  const seed = minerSeed(today(), block.id)
+  const { tx_count } = await (await fetch(`http://localhost:7777/api/block/${block.id}`)).json()
+  const pages = await Promise.all(
+    pageStarts(seed, tx_count).map(async (start) => {
+      const list: { txid: string; fee: number; weight: number; vin: { txid: string; is_coinbase: boolean }[] }[] = await (
+        await fetch(`http://localhost:7777/api/block/${block.id}/txs/${start}`)
+      ).json()
+      return list.map((t): BlockTx => ({ txid: t.txid, fee: t.fee, weight: t.weight, inputs: t.vin.map((v) => v.txid), coinbase: t.vin.some((v) => v.is_coinbase) }))
+    }),
+  )
+  return { block, deal: dealFrom(seed, pages) }
+}
+
+/** Publishes a Beat the Miner run for today (kind 1953) with these moves ("t"/"p"); returns its fees. */
+export async function publishMinerRun(sk: Uint8Array, moves: string, fees: number) {
+  const block = await dayBlock()
+  await seed({
+    sk,
+    template: {
+      kind: 1953,
+      created_at: Math.floor(Date.now() / 1000),
+      content: JSON.stringify({ moves }),
+      tags: [['L', 'silvamor/miner'], ['l', today(), 'silvamor/miner'], ['block', String(block.height), block.id], ['score', String(fees)]],
+    },
+  })
+  return fees
 }

@@ -15,22 +15,3 @@ export function shareText(day: string, score: number, streak: number, plays: Pla
     url,
   ].join('\n')
 }
-
-// Offered once a day: dismissing or posting both count.
-const offeredKey = (pubkey: string) => `silvamor:share-offered:${pubkey}`
-
-export function shareOffered(pubkey: string, day: string): boolean {
-  try {
-    return localStorage.getItem(offeredKey(pubkey)) === day
-  } catch {
-    return false
-  }
-}
-
-export function markShareOffered(pubkey: string, day: string) {
-  try {
-    localStorage.setItem(offeredKey(pubkey), day)
-  } catch {
-    // Storage blocked: the offer may come back on a reload, which is harmless.
-  }
-}

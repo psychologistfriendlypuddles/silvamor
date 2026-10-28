@@ -19,10 +19,9 @@ test('daily deal: discard, play every hand with your sprite cheering, and keep t
   const alice = await newPlayer(browser, 'Alice')
   await login(alice)
   const { page } = alice
-  // Home is Daily Deal; there's no lobby any more.
+  // Beat the Miner is home; Daily Deal is in the menu.
+  await page.getByRole('link', { name: 'Daily Deal' }).first().click()
   await expect(page.getByRole('heading', { name: 'Daily Deal' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Daily Deal' }).first()).toBeVisible()
-  await expect(page.getByRole('link', { name: /Lobby/ })).toHaveCount(0)
   await expect(page.getByRole('list', { name: "Today's perks" }).getByRole('listitem')).toHaveCount(3)
   await expect(hand(page)).toHaveCount(8)
   await expect(page.getByRole('img', { name: 'Ostrich (idle)' })).toBeVisible()
@@ -47,7 +46,7 @@ test('daily deal: discard, play every hand with your sprite cheering, and keep t
 
   // Logging in again finds the run where it was left.
   await page.reload()
-  await login(alice)
+  await login(alice, '/daily-deal')
   await expect(stat(page, 'Score')).toHaveText(points(expected))
   await expect(stat(page, 'Discards')).toHaveText('2')
 
@@ -81,7 +80,7 @@ test('daily deal: discard, play every hand with your sprite cheering, and keep t
 
   // It's offered once a day.
   await page.reload()
-  await login(alice)
+  await login(alice, '/daily-deal')
   await expect(podium(page, 1, 'You', expected)).toBeVisible()
   await expect(note).toBeHidden()
   expectNoErrors(alice)
@@ -104,7 +103,7 @@ test('daily deal: runs are published, friends on the podium, and a friend who be
   // Alice played the last four days.
   await publishYesterday(alice.sk, 4)
 
-  await login(alice)
+  await login(alice, '/daily-deal')
   const { page } = alice
   await expect(page.getByText('1 friend has played today. Finish your run to see the scores.')).toBeVisible()
   const hands = Number(await stat(page, 'Hands').textContent())

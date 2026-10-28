@@ -9,6 +9,7 @@ leaderboards. No server is involved.
 | Kind    | Type        | Author | Purpose                                      |
 |---------|-------------|--------|----------------------------------------------|
 | `1952`  | regular     | player | Daily Deal run (see "Publishing a run")      |
+| `1953`  | regular     | player | Beat the Miner run (see "Beat the Miner")    |
 | `30951` | addressable | artist | Player sprite (see [SPRITES.md](SPRITES.md)) |
 
 Standard Nostr events the app also uses:
@@ -27,6 +28,50 @@ Standard Nostr events the app also uses:
 | `24133` | NIP-46 | Talking to signer apps |
 | `23194` / `23195` | NIP-47 | Paying through a connected wallet (Nostr Wallet Connect) |
 | `27235` / `24242` | NIP-98 / Blossom | Signed requests to the push service and upload server |
+
+## Beat the Miner
+
+Each day's game is built from the same seed block as Daily Deal: the lowest-height block whose
+timestamp is at or after 00:00 UTC (see "Daily Deal" for how clients find it). Its seed is
+`sha256("silvamor/miner/<YYYY-MM-DD>/<seed block hash>")`, hex, driving the same sfc32 generator.
+The reference code is `src/games/miner/rules.ts`.
+
+**The day's transactions.** Clients read the block's transaction count (Esplora `GET /block/:hash`,
+`tx_count`) and 4 pages of 25 transactions (`GET /block/:hash/txs/:start`). Page `i` (0–3) starts at
+`floor((1 + i·span + below(span)) / 25) · 25`, with `span = floor((tx_count − 1) / 4)` and `below(n)`
+the generator's next output scaled to 0…n−1; repeated starts are read once. From the pages:
+- the coinbase, and transactions over 1,500 vbytes (`ceil(weight / 4)`), are left out;
+- a transaction spending from one other transaction on the pages, which itself spends from none of
+  them, is that one's *child* (at most 2 per parent, lowest txids first); other transactions spending
+  from ones on the pages are left out;
+- the rest are *roots*. Roots are sorted by txid and shuffled, after 4 generator outputs are skipped
+  (the ones the page starts used); each root is added with its children while they fit in 30;
+- the 30 (or fewer) are shuffled again, and a child that would arrive before its parent moves to just
+  after it.
+
+Your block has room for `round(0.45 × total vbytes)`. The block is found after
+`min(18, n) + below(n − min(18, n) + 1)` arrivals, `n` being the number of transactions.
+
+**Playing.** Transactions are offered in order. For each one the player either takes it (it must fit,
+and a child's parent must already be in the block) or passes on it for good. When the number of
+moves reaches the find point, the block is found and the run is over; its score is the fees taken.
+
+**The miner** takes a transaction when it fits, its parent (if any) is in, and its fee rate is at least
+the average fee rate of everything offered so far, this one included. The best possible block is a
+knapsack over what arrived before the block was found (each parent with any set of its children).
+
+**Publishing a run (kind 1953):**
+
+```json
+{ "kind": 1953, "content": "{\"moves\":\"tpptt…\"}",
+  "tags": [["L", "silvamor/miner"], ["l", "<day>", "silvamor/miner"],
+           ["block", "<seed block height>", "<seed block hash>"], ["score", "<sats>"],
+           ["alt", "Beat the Miner on Silvamor: <sats> sats in fees"]] }
+```
+
+`moves` has one letter per transaction offered: `t` (take) or `p` (pass). A run counts under the same
+conditions as a Daily Deal run (its seed block, made during its day, its moves replay to exactly its
+`score`), and only each player's first one counts. Leaderboards rank by fees.
 
 ## Daily Deal
 

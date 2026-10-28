@@ -103,7 +103,7 @@ the guard has a Docker health check.
 | Layer | What it does |
 |-------|--------------|
 | Remove the pubkey whitelist | Every player can publish |
-| Event-kind allowlist (relay config) | Only Silvamor's 12 kinds are stored: 0, 3, 5, 62, 1952, 1984, 9735, 10002, 30000, 30004, 30078, 30951. Notes, reactions, DMs and the rest are refused |
+| Event-kind allowlist (relay config) | Only Silvamor's 13 kinds are stored: 0, 3, 5, 62, 1952, 1953, 1984, 9735, 10002, 30000, 30004, 30078, 30951. Notes, reactions, DMs and the rest are refused |
 | Size and time limits (relay config) | Events over 256 KB (room for follow lists of about 3,500 people), or dated more than 30 minutes ahead, are refused |
 | `limit_scrapers` (relay config) | Vague "give me everything" queries are refused; every query Silvamor makes is narrow enough |
 | Relay guard: admission | Each kind gets a size cap and a shape check, so junk of an allowed kind is refused too: runs must replay to their score, reports must be about a sprite (notes at most 83 characters, 1 KB in all), settings must be Silvamor's own, sprites must be valid, and so on |

@@ -5,6 +5,7 @@ A small companion to relay.silvamor.com (nostr-rs-relay). It does these jobs:
 - **Event admission.** The relay asks it about every incoming event (gRPC, nostr-rs-relay's
   `nauthz` API) before storing it. It admits only Silvamor's event kinds, and gives each a size
   cap and a shape check (`src/policy.ts`), so junk of an allowed kind is refused too. For example:
+  Beat the Miner runs must replay on the day's transactions to the fees they claim, and
   Daily Deal runs must replay to the score they claim (the app's own check,
   `../src/lib/nostr/dailyRuns.ts`), and a run claiming an N-day streak needs the player's run
   for the day before, stored here, to claim N − 1 (the guard reads it from the relay's database;
@@ -57,7 +58,7 @@ docker compose -f deploy/compose.yaml up -d --build
 - The guard publishes no ports: the relay reaches it as `http://guard:50051` on the compose
   network, and nothing else can.
 - Start with `DRY_RUN=true`: the log shows how many events clean-up *would* delete
-  (`cleanup (dry run, nothing deleted): kind 1952: 0, kind 9735: 0`). When the numbers look right,
+  (`cleanup (dry run, nothing deleted): kind 1952: 0, kind 1953: 0, kind 9735: 0`). When the numbers look right,
   set `DRY_RUN=false`. Back up `nostr.db` first.
 
 ## Settings (environment variables)
@@ -71,7 +72,7 @@ docker compose -f deploy/compose.yaml up -d --build
 | `PER_IP_DAY` | `2000` | Events one IP address may publish per day, whatever keys it uses |
 | `RELAY_URL` | `wss://relay.silvamor.com` | This relay's address, which requests to vanish must name (or `ALL_RELAYS`) |
 | `RELAY_DB` | none | The relay's SQLite file. Without it, there's no clean-up and no requests to vanish |
-| `RETENTION` | `1952:30,9735:30` | What to delete, as `kind:days` pairs: by default runs and tip receipts after 30 days, as the privacy policy promises. Change it only together with the policy |
+| `RETENTION` | `1952:30,1953:30,9735:30` | What to delete, as `kind:days` pairs: by default runs and tip receipts after 30 days, as the privacy policy promises. Change it only together with the policy |
 | `DRY_RUN` | `true` | `false` to actually delete; otherwise clean-up only counts |
 
 Clean-up runs a minute after start and then every 24 hours. It's written against nostr-rs-relay's

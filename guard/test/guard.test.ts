@@ -9,6 +9,8 @@ import protobuf from 'protobufjs'
 import { hexToBytes } from 'nostr-tools/utils'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventTemplate } from 'nostr-tools/pure'
 import { buildRun, previousDay } from '../../src/lib/nostr/dailyRuns'
+import { buildMinerRun } from '../../src/lib/nostr/minerRuns'
+import type { MinerDeal } from '../../src/games/miner/rules'
 import { dailyDealRules, type DailyDealMove } from '../../src/games/dailydeal/rules'
 import { dayOf, dayStart, seedFor } from '../../src/games/dailydeal/daily'
 import { createPolicy } from '../src/policy'
@@ -201,6 +203,7 @@ describe('cleanup', () => {
   it('deletes runs and tip receipts after 30 days by default, and keeps reports, as the privacy policy says', () => {
     expect(configFromEnv({}).retention).toEqual([
       { kind: 1952, days: 30 },
+      { kind: 1953, days: 30 },
       { kind: 9735, days: 30 },
     ])
     expect(configFromEnv({}).dryRun).toBe(true)
@@ -420,5 +423,30 @@ describe('streaks', () => {
     db.close()
     expect(storedStreaks(path, me, yesterday)?.sort()).toEqual([1, 3])
     expect(storedStreaks(path, me, '2000-01-01')).toEqual([])
+  })
+})
+
+describe('Beat the Miner runs', () => {
+  const deal: MinerDeal = {
+    stream: [
+      { txid: 'a'.repeat(64), fee: 300, vsize: 100 },
+      { txid: 'b'.repeat(64), fee: 100, vsize: 200 },
+      { txid: 'c'.repeat(64), fee: 900, vsize: 100, parent: 1 },
+    ],
+    capacity: 300,
+    foundAt: 3,
+  }
+  const minerRun = (score: number) => finalizeEvent(buildMinerRun({ day, block, moves: ['pass', 'take', 'take'], score }), sk)
+  const policy = (findDeal: () => Promise<MinerDeal>) => createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal, perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
+
+  it('admits runs that replay on the day’s deal to their fees, and no others', async () => {
+    const p = policy(async () => deal)
+    expect(await p.decide(minerRun(1000))).toEqual({ permit: true })
+    expect(await p.decide(minerRun(1200))).toEqual({ permit: false, message: "the run doesn't replay to its fees" })
+    expect((await p.decide(sign({ kind: 1953, content: 'junk' }))).permit).toBe(false)
+  })
+
+  it("admits runs unchecked when the day's transactions can't be read", async () => {
+    expect(await policy(() => Promise.reject(new Error('offline'))).decide(minerRun(1200))).toEqual({ permit: true })
   })
 })
