@@ -7,6 +7,8 @@ import type { AppSigner } from './signers'
 // uploaded again. Other relays aren't asked.
 
 export const VANISH_KIND = 62
+/** Silvamor's relay refuses a request to vanish from a key it keeps nothing from, saying this (guard/src/server.ts). */
+export const NOTHING_KEPT = 'nothing from this key is kept here'
 
 export function buildVanishRequest(relay = HOME_RELAY): EventTemplate {
   return { kind: VANISH_KIND, created_at: Math.floor(Date.now() / 1000), tags: [['relay', relay]], content: '' }
@@ -19,6 +21,8 @@ export async function requestVanish(signer: AppSigner) {
     await pool.publish([HOME_RELAY], event, { maxWait: 15_000 })[0]
   } catch (err) {
     const reason = String(err instanceof Error ? err.message : err).replace(/^blocked: /, '')
+    // Nothing kept there: nothing to delete, which is what the player asked for.
+    if (reason === NOTHING_KEPT) return
     throw new Error(`${HOME_RELAY.replace(/^wss?:\/\//, '')} didn't delete your data: ${reason}`, { cause: err })
   }
 }

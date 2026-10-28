@@ -163,6 +163,9 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
     if (!config.relayDb) return { permit: false, message: "this relay can't delete events on request; ask its operator" }
     try {
       const n = erase(config.relayDb, event.pubkey, event.created_at)
+      // A key with nothing kept here has nothing to forget, so its request isn't kept either: anyone
+      // could otherwise pile up requests from throwaway keys for good. (The app takes this as done.)
+      if (n === 0 && !vanished.has(event.pubkey)) return { permit: false, message: 'nothing from this key is kept here' }
       vanished.set(event.pubkey, Math.max(event.created_at, vanished.get(event.pubkey) ?? 0))
       log(`request to vanish: deleted ${n} events`)
       return { permit: true }

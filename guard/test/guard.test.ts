@@ -9,6 +9,7 @@ import protobuf from 'protobufjs'
 import { hexToBytes } from 'nostr-tools/utils'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventTemplate } from 'nostr-tools/pure'
 import { buildMinerRun } from '../../src/lib/nostr/minerRuns'
+import { NOTHING_KEPT } from '../../src/lib/nostr/vanish'
 import type { MinerDeal } from '../../src/games/miner/rules'
 import { dayOf, dayStart, previousDay } from '../../src/games/day'
 import { createPolicy } from '../src/policy'
@@ -275,7 +276,7 @@ describe('gRPC event admission', () => {
 
   beforeAll(async () => {
     guard = await startGuard(
-      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,relayDb: null, retention: [], dryRun: true },
+      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9, relayDb: null, retention: [], dryRun: true },
       { policy: createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 2, perIpDay: 100_000, perIpDayBytes: 1e9 }), log: () => {} },
     )
     const def = protoLoader.fromJSON(protobuf.parse(nauthzProto, { keepCase: true }).root.toJSON(), { keepCase: true, longs: Number, enums: Number, defaults: true })
@@ -321,7 +322,7 @@ describe('gRPC event admission', () => {
 
   it('refuses runs and requests to vanish when something goes wrong, and lets other events in', async () => {
     const broken = await startGuard(
-      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,relayDb: null, retention: [], dryRun: true },
+      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9, relayDb: null, retention: [], dryRun: true },
       { policy: { decide: () => Promise.reject(new Error('bug')), recheck: () => Promise.reject(new Error('bug')) }, log: () => {} },
     )
     const def = protoLoader.fromJSON(protobuf.parse(nauthzProto, { keepCase: true }).root.toJSON(), { keepCase: true, longs: Number, enums: Number, defaults: true })
@@ -379,7 +380,7 @@ describe('requests to vanish (NIP-62)', () => {
   })
 
   it("refuses a vanished key's older events, and admits newer ones", async () => {
-    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,vanishedAt: (pk) => (pk === me ? now : undefined) })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9, vanishedAt: (pk) => (pk === me ? now : undefined) })
     expect(await p.decide(sign({ kind: 0, content: '{}', created_at: now - 60 }))).toEqual({ permit: false, message: 'this key asked this relay to delete its events' })
     expect(await p.decide(sign({ kind: 0, content: '{}', created_at: now + 60 }))).toEqual({ permit: true })
   })
@@ -405,7 +406,7 @@ describe('requests to vanish (NIP-62)', () => {
     beforeAll(async () => {
       path = storedDb()
       guard = await startGuard(
-        { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,relayDb: path, retention: [], dryRun: true },
+        { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9, relayDb: path, retention: [], dryRun: true },
         { log: () => {} },
       )
       const def = protoLoader.fromJSON(protobuf.parse(nauthzProto, { keepCase: true }).root.toJSON(), { keepCase: true, longs: Number, enums: Number, defaults: true })
@@ -430,9 +431,17 @@ describe('requests to vanish (NIP-62)', () => {
       expect(await admit(sign({ kind: 0, content: '{}', created_at: now - 60 }))).toMatchObject({ decision: 2, message: 'this key asked this relay to delete its events' })
     })
 
+    it('refuses a request from a key with nothing kept here, without remembering it; a key that vanished may ask again', async () => {
+      const stranger = generateSecretKey()
+      expect(await admit(finalizeEvent({ kind: 62, created_at: now, tags: [['relay', HOME]], content: '' }, stranger))).toMatchObject({ decision: 2, message: NOTHING_KEPT })
+      expect((await admit(finalizeEvent({ kind: 0, created_at: now - 60, tags: [], content: '{}' }, stranger))).decision).toBe(1)
+      // The key from the test before has nothing left, but it's remembered.
+      expect((await admit(sign({ kind: 62, tags: [['relay', HOME]] }))).decision).toBe(1)
+    })
+
     it('refuses a request when it has no database to delete from', async () => {
       const bare = await startGuard(
-        { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,relayDb: null, retention: [], dryRun: true },
+        { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9, relayDb: null, retention: [], dryRun: true },
         { log: () => {} },
       )
       await guard.close()
@@ -468,7 +477,7 @@ describe('streaks', () => {
   })
 
   it("doesn't check streaks it can't look up", async () => {
-    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,streaksOn: () => null })
+    const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9, streaksOn: () => null })
     expect(await p.decide(run(0, 9))).toEqual({ permit: true })
   })
 
@@ -502,7 +511,7 @@ describe('Block of the Day runs', () => {
   const twoDaysAgo = previousDay(previousDay(day))
   /** The policy with its clock at `seconds` (unix). */
   const policyAt = (seconds: number) =>
-    createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,now: () => seconds * 1000 })
+    createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: async () => deal, perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9, now: () => seconds * 1000 })
   /** `run()` made at `at` (unix seconds), for `onDay`. */
   const runAt = (at: number, onDay = day) => finalizeEvent({ ...buildMinerRun({ day: onDay, block, moves: ['pass', 'take', 'take'], score: 1000, streak: 1 }), created_at: at }, sk)
 
@@ -652,7 +661,7 @@ describe('sweep', () => {
     const late = (at: number) => store(path, made(sk, twoDaysAgo, at), at)
     const lines: string[] = []
     const guard = await startGuard(
-      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9,relayDb: path, retention: [], dryRun: false },
+      { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9, relayDb: path, retention: [], dryRun: false },
       { policy: policyOver(path), log: (m) => lines.push(m) },
     )
     try {

@@ -34,8 +34,10 @@ A small companion to relay.silvamor.com (nostr-rs-relay). It does these jobs:
   key published here, then refuses any of them uploaded again (anything dated before the
   request), so a copy from another relay can't bring them back. The request itself is kept: it's
   how the guard remembers, and it holds only the key and the time. This happens even with
-  `DRY_RUN=true`, because the player asked for it. Without `RELAY_DB` the guard refuses requests
-  to vanish, so the player is told nothing was deleted.
+  `DRY_RUN=true`, because the player asked for it. A key with nothing kept here has nothing to
+  delete, so its request is refused rather than kept (the app takes that as done): throwaway keys
+  can't pile requests up. Without `RELAY_DB` the guard refuses requests to vanish, so the player is
+  told nothing was deleted.
 - **Sweep.** While the guard can't be reached (restarting, say), the relay stores events unchecked.
   So every minute the guard checks the runs stored in the last two hours again, each as it reached
   the relay (its `first_seen` time), and deletes the ones it would have refused: made on another
