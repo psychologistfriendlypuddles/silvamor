@@ -12,7 +12,7 @@ import { Logo } from './Brand'
 import { Spinner } from './ui'
 
 const NAV = [
-  { to: '/', label: 'Miner', full: 'Beat the Miner', icon: Pickaxe, color: 'text-lemon' },
+  { to: '/', label: 'Play', full: 'Block of the Day', icon: Pickaxe, color: 'text-lemon' },
   { to: '/social', label: 'Social', icon: MessagesSquare, color: 'text-sky' },
   { to: '/leagues', label: 'Leagues', icon: Trophy, color: 'text-tangerine' },
   { to: '/sprites', label: 'Sprites', icon: Store, color: 'text-grape' },

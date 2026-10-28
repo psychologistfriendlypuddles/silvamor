@@ -24,7 +24,7 @@ event_kind_allowlist = [
   3,      # follow lists: who's on each player's leaderboard and who they hear about
   5,      # deleting a group
   62,     # requests to vanish: "Delete my data" on the Profile page (the guard does the deleting)
-  1953,   # Beat the Miner runs
+  1953,   # Block of the Day runs
   1984,   # sprite reports
   9735,   # zap receipts for tips (published by the recipient's Lightning provider)
   10002,  # relay lists

@@ -100,7 +100,7 @@ export const NIP46_PERMS = [
   'sign_event:0', // profile
   'sign_event:1', // sharing your result as a note
   'sign_event:5', // delete a league
-  'sign_event:1953', // Beat the Miner runs
+  'sign_event:1953', // Block of the Day runs
   'sign_event:1984', // report a sprite
   'sign_event:9734', // zap requests: tipping a player or an artist
   'sign_event:10002', // relay list

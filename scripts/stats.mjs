@@ -1,4 +1,4 @@
-// Silvamor stats from the relays: Beat the Miner players per day, and each day's top fees.
+// Silvamor stats from the relays: Block of the Day players per day, and each day's top fees.
 // Usage: npm run stats                      (last 30 days)
 //        npm run stats -- --days 7
 //        npm run stats -- --json            (machine-readable)
@@ -16,7 +16,7 @@ export const DEFAULT_RELAYS = ['wss://relay.silvamor.com']
 const LABEL = 'silvamor/miner'
 const day = (seconds) => new Date(seconds * 1000).toISOString().slice(0, 10)
 
-/** Beat the Miner players in the last `days` UTC days (today included), per day. */
+/** Block of the Day players in the last `days` UTC days (today included), per day. */
 export async function collectStats({ relays = DEFAULT_RELAYS, days = 30, now = Math.floor(Date.now() / 1000), maxWait = 8000 } = {}) {
   // Whole UTC days: from the start of the first day to now.
   const since = Math.floor(now / 86400) * 86400 - (days - 1) * 86400
@@ -43,7 +43,7 @@ export async function collectStats({ relays = DEFAULT_RELAYS, days = 30, now = M
 
 function print(stats) {
   const bar = (n, max) => '█'.repeat(max ? Math.round((n / max) * 30) : 0)
-  console.log(`\nSilvamor Beat the Miner, ${stats.from} to ${stats.to} (UTC)`)
+  console.log(`\nSilvamor Block of the Day, ${stats.from} to ${stats.to} (UTC)`)
   console.log(`${stats.players} different players\n`)
   console.log('Players per day (top fees, sats)')
   const max = Math.max(0, ...stats.perDay.map((d) => d.players))

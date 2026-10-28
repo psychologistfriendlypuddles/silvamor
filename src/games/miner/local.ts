@@ -2,7 +2,7 @@ import type { Block } from '../../lib/bitcoin'
 import { fetchDeal } from './deal'
 import type { MinerDeal } from './rules'
 
-// What this browser keeps for Beat the Miner: the day's deal (the same for everyone, so it isn't
+// What this browser keeps for Block of the Day: the day's deal (the same for everyone, so it isn't
 // read from the block sources again), and each account's run in progress so a reload picks it up.
 
 // v2: deals now carry each transaction's facts for the sprite.

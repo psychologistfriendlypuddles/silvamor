@@ -30,7 +30,7 @@ const KINDS: Record<number, { maxBytes: number; wrong?: (e: Event) => string | n
   3: { maxBytes: 262_144 },
   5: { maxBytes: 2_048, wrong: (e) => (e.tags.some((t) => t[0] === 'a' || t[0] === 'e') ? null : 'a deletion names what it deletes') },
   62: { maxBytes: 2_048 }, // request to vanish (NIP-62): checked against this relay's address below
-  1953: { maxBytes: 4_096 }, // Beat the Miner runs: checked by replaying them below
+  1953: { maxBytes: 4_096 }, // Block of the Day runs: checked by replaying them below
   1984: {
     maxBytes: 1_024,
     wrong: (e) =>
@@ -57,7 +57,7 @@ export interface Decision {
 export interface PolicyOptions {
   /** The first Bitcoin block at or after `time` (unix seconds): a day's seed block. Null until mined. */
   findBlock(time: number): Promise<Block | null>
-  /** A day's Beat the Miner deal, read from its seed block's transactions. */
+  /** A day's Block of the Day deal, read from its seed block's transactions. */
   findDeal?(day: string, block: Block): Promise<MinerDeal>
   /** Events one author may publish per minute. */
   perMinute: number
@@ -119,7 +119,7 @@ export function createPolicy(opts: PolicyOptions) {
 
   async function checkMinerRun(event: Event): Promise<Decision> {
     const run = parseMinerRun(event)
-    if (!run) return deny('not a Beat the Miner run')
+    if (!run) return deny('not a Block of the Day run')
     let block: Block | null
     let deal: MinerDeal | undefined
     try {
@@ -131,7 +131,7 @@ export function createPolicy(opts: PolicyOptions) {
       log(`no block source for ${run.day}, admitting run ${event.id}: ${err instanceof Error ? err.message : err}`)
       return permit
     }
-    if (!block) return deny(`no Beat the Miner for ${run.day} yet`)
+    if (!block) return deny(`no Block of the Day for ${run.day} yet`)
     if (deal && !verifyMinerRun(run, block, deal, null)) return deny("the run doesn't replay to its fees")
     // A streak links to the day before: that day's run here must claim one day less.
     if (run.streak > 1) {

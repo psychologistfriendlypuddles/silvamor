@@ -49,7 +49,7 @@ export function erase(dbPath: string, pubkey: string, before: number): number {
 }
 
 /**
- * The streaks `pubkey`'s Beat the Miner runs for `day` claim, as stored here; null if a stored event
+ * The streaks `pubkey`'s Block of the Day runs for `day` claim, as stored here; null if a stored event
  * can't be read (then nothing is checked). The relay keeps each event's JSON in `content` and
  * indexes single-letter tags, such as the day label `l`.
  */

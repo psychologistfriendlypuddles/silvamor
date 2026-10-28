@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { expectNoErrors, followsEvent, login, newPlayer, profileEvent, publishRun, seed } from './helpers'
 
-const post = (sk: Uint8Array, content: string, tags: string[][] = [['t', 'beattheminer']]) => ({
+const post = (sk: Uint8Array, content: string, tags: string[][] = [['t', 'blockoftheday']]) => ({
   sk,
   template: { kind: 1, created_at: Math.floor(Date.now() / 1000), tags, content },
 })
@@ -14,8 +14,8 @@ test("social: the game's posts, globally or from follows, and the global boards 
   await seed(
     profileEvent(bob, 'Bob'),
     profileEvent(carol, 'Carol'),
-    post(bob, `⛏️ Bob's block ${tag} #beattheminer`),
-    post(carol, `⛏️ Carol's block ${tag} #beattheminer`),
+    post(bob, `⛏️ Bob's block ${tag} #blockoftheday`),
+    post(carol, `⛏️ Carol's block ${tag} #blockoftheday`),
     post(carol, `Carol's lunch ${tag}`, []), // not about the game
   )
   const alice = await newPlayer(browser, 'Alice')
@@ -25,12 +25,12 @@ test("social: the game's posts, globally or from follows, and the global boards 
 
   // The feed: everyone's posts with the game's hashtag, or just from people Alice follows.
   const posts = page.getByRole('list', { name: 'Posts' })
-  await expect(posts.getByText(`⛏️ Bob's block ${tag} #beattheminer`)).toBeVisible()
-  await expect(posts.getByText(`⛏️ Carol's block ${tag} #beattheminer`)).toBeVisible()
+  await expect(posts.getByText(`⛏️ Bob's block ${tag} #blockoftheday`)).toBeVisible()
+  await expect(posts.getByText(`⛏️ Carol's block ${tag} #blockoftheday`)).toBeVisible()
   await expect(posts.getByText(`Carol's lunch ${tag}`)).toHaveCount(0)
   await page.getByRole('tab', { name: 'My follows' }).click()
-  await expect(posts.getByText(`⛏️ Bob's block ${tag} #beattheminer`)).toBeVisible()
-  await expect(posts.getByText(`⛏️ Carol's block ${tag} #beattheminer`)).toHaveCount(0)
+  await expect(posts.getByText(`⛏️ Bob's block ${tag} #blockoftheday`)).toBeVisible()
+  await expect(posts.getByText(`⛏️ Carol's block ${tag} #blockoftheday`)).toHaveCount(0)
 
   // Top Scores: today's are hidden until Alice has played; then the best stand on the podium.
   await page.getByRole('tab', { name: 'Top Scores' }).click()

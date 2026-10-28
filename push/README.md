@@ -2,7 +2,7 @@
 
 A small, self-hostable watchtower for streak reminders. Players who turn reminders on register
 their browser's push subscription here, signed with their Nostr key (NIP-98, no accounts). A few
-hours before the day ends (midnight UTC), the service reads subscribers' Beat the Miner runs from
+hours before the day ends (midnight UTC), the service reads subscribers' Block of the Day runs from
 Silvamor's relay and sends one Web Push notification to each player whose streak reached
 yesterday and who hasn't played today: "🔥 Your 12-day streak ends in 4 hours. Play today to keep
 it going." Silvamor's relay checks every run's streak before keeping it, so the service takes the

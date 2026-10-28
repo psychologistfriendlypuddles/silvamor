@@ -3,7 +3,7 @@ import type { Block } from '../bitcoin'
 import { dayStart } from '../../games/day'
 import { decodeMoves, encodeMoves, minerRules, type MinerDeal, type MinerMove, type MinerState } from '../../games/miner/rules'
 
-// See docs/PROTOCOL.md, "Beat the Miner".
+// See docs/PROTOCOL.md, "Block of the Day".
 export const MINER_RUN_KIND = 1953
 /** NIP-32 label namespace: runs are labelled with their day so relays can filter on it. */
 export const MINER_LABEL = 'silvamor/miner'
@@ -35,7 +35,7 @@ export function buildMinerRun(f: { day: string; block: Block; moves: MinerMove[]
       ['block', String(f.block.height), f.block.hash],
       ['score', String(f.score)],
       ['streak', String(f.streak)],
-      ['alt', `Beat the Miner on Silvamor: ${f.score} sats in fees`],
+      ['alt', `Block of the Day on Silvamor: ${f.score} sats in fees`],
     ],
   }
 }

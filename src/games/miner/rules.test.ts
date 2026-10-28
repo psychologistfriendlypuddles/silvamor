@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bestFees, dealFrom, decodeMoves, encodeMoves, minerFees, minerRules, minerSeed, pageStarts, percentOf, STREAM_LENGTH, type BlockTx, type MinerDeal } from './rules'
+import { bestFees, dealFrom, decodeMoves, encodeMoves, minerFees, minerRules, minerSeed, pageStarts, STREAM_LENGTH, type BlockTx, type MinerDeal } from './rules'
 import { IllegalMove } from '../types'
 
 const seed = minerSeed('2026-10-28', 'ab'.repeat(32))
@@ -15,7 +15,7 @@ function pages(): BlockTx[][] {
   )
 }
 
-describe('beat the miner: the deal', () => {
+describe('block of the day: the deal', () => {
   const deal = dealFrom(seed, pages())
 
   it('reads one page from each quarter of the block', () => {
@@ -44,7 +44,7 @@ describe('beat the miner: the deal', () => {
   })
 })
 
-describe('beat the miner: playing', () => {
+describe('block of the day: playing', () => {
   /** Three transactions; the block is found after all three, with room for 300 vbytes. */
   const deal: MinerDeal = {
     stream: [
@@ -84,7 +84,6 @@ describe('beat the miner: playing', () => {
     }
     expect(minerFees(trap)).toBe(300)
     expect(bestFees(trap)).toBe(1000)
-    expect(percentOf(1000, 300)).toBe(333)
   })
 
   it('stores moves as one letter each', () => {

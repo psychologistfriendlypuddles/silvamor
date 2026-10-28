@@ -125,7 +125,7 @@ export async function dayBlock() {
 }
 
 /**
- * Publishes a Beat the Miner run straight to the test relay, as Silvamor's relay would keep it, for
+ * Publishes a Block of the Day run straight to the test relay, as Silvamor's relay would keep it, for
  * the global boards (which take that relay's scores as they are): by default today's, with fees
  * that rise over time so the latest player ranks first. Returns its fees.
  */
@@ -206,9 +206,9 @@ export async function publishSprite(player: Player, name: string) {
   return spriteIdByTitle(player.pubkey, name)
 }
 
-// --- Beat the Miner ---
+// --- Block of the Day ---
 
-/** Today's Beat the Miner deal, read from the test relay's made-up block the way the app reads it. */
+/** Today's Block of the Day deal, read from the test relay's made-up block the way the app reads it. */
 export async function todaysDeal() {
   const block = await dayBlock()
   const seed = minerSeed(today(), block.id)
@@ -224,7 +224,7 @@ export async function todaysDeal() {
   return { block, deal: dealFrom(seed, pages) }
 }
 
-/** Publishes a Beat the Miner run for today (kind 1953) with these moves ("t"/"p"); returns its fees. */
+/** Publishes a Block of the Day run for today (kind 1953) with these moves ("t"/"p"); returns its fees. */
 export async function publishMinerRun(sk: Uint8Array, moves: string, fees: number) {
   const block = await dayBlock()
   await seed({

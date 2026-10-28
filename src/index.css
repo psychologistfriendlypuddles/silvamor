@@ -31,7 +31,7 @@
 
   --animate-float: float 9s ease-in-out infinite;
   --animate-wiggle: wiggle 0.5s ease-in-out;
-  /* The transaction on offer in Beat the Miner. */
+  /* The transaction on offer in Block of the Day. */
   --animate-glow: glow 1.6s ease-in-out infinite;
 
   @keyframes float {

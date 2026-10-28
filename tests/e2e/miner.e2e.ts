@@ -2,7 +2,8 @@ import { expect, test, type Page } from '@playwright/test'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Relay } from 'nostr-tools/relay'
 import { RELAY, expectNoErrors, followsEvent, login, newPlayer, profileEvent, publishMinerRun, publishRun, seed, today, todaysDeal } from './helpers'
-import { blocked, encodeMoves, minerFees, minerMoves, minerRules, percentOf, type MinerMove } from '../../src/games/miner/rules'
+import { blocked, encodeMoves, minerFees, minerMoves, minerRules, type MinerMove } from '../../src/games/miner/rules'
+import { shortSats } from '../../src/games/miner/share'
 
 const sats = (n: number) => `${n.toLocaleString('en-US')} sats`
 /** The card on offer is transaction `n` (counting from 1). */
@@ -19,21 +20,21 @@ async function swipe(page: Page, move: MinerMove) {
   await page.mouse.up()
 }
 
-test('beat the miner: take or pass until the block is found, then a streak and a note to share', async ({ browser }) => {
+test('block of the day: take or pass until the block is found, then a streak and a note to share', async ({ browser }) => {
   const { deal } = await todaysDeal()
   // Bob played like the miner; Alice follows him.
   const bob = generateSecretKey()
   await seed(profileEvent(bob, 'Bob'))
-  const bobFees = await publishMinerRun(bob, encodeMoves(minerMoves(deal)), minerFees(deal))
+  await publishMinerRun(bob, encodeMoves(minerMoves(deal)), minerFees(deal))
   const alice = await newPlayer(browser, 'Alice')
   await seed(followsEvent(alice.sk, [getPublicKey(bob)]))
   // Alice played the last four days.
   await publishRun(alice.sk, { daysAgo: 1, streak: 4, fees: 1 })
 
-  // Beat the Miner is the home page.
+  // Block of the Day is the home page.
   await login(alice)
   const { page } = alice
-  await expect(page.getByRole('heading', { name: 'Beat the Miner' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Block of the Day' })).toBeVisible()
   await expect(page.getByText("1 friend has played today. Finish your block to see today's scores.")).toBeVisible()
   // Today's seed block and its players, and the last 7 games in a popup.
   await expect(page.getByText(/^Current block [\d,]+ has [\d,]+ players?/)).toBeVisible()
@@ -91,11 +92,13 @@ test('beat the miner: take or pass until the block is found, then a streak and a
   // The block is found: her fees against the miner's, and the share offer.
   await expect(page.getByText(`Block found after ${deal.foundAt} transactions`)).toBeVisible()
   await expect(page.getByLabel('Your fees')).toHaveText(sats(state.fees))
-  const ofMiner = percentOf(state.fees, minerFees(deal))
-  await expect(page.getByText(`${ofMiner}% of the miner's ${sats(minerFees(deal))}`)).toBeVisible()
-  await expect(page.getByRole('textbox', { name: 'Your note' })).toHaveValue(new RegExp(`^⛏️ Beat the Miner ${today()}, block [\\d,]+: ${sats(state.fees)}, ${ofMiner}% of the miner\\n`))
+  // How it compares with the miner, in sats.
+  const miner = minerFees(deal)
+  await expect(page.getByText(`The miner's block: ${sats(miner)}`)).toBeVisible()
+  const versus = state.fees === miner ? 'level with the miner' : `${shortSats(Math.abs(state.fees - miner))} ${state.fees > miner ? 'ahead of' : 'behind'} the miner`
+  await expect(page.getByRole('textbox', { name: 'Your note' })).toHaveValue(new RegExp(`^⛏️ Block of the Day ${today()}, block [\\d,]+: ${versus.replace('.', '\\.')}\\n`))
   await expect(page.getByRole('textbox', { name: 'Your note' })).toHaveValue(/\n🔥 5-day streak\n/)
-  await expect(page.getByRole('textbox', { name: 'Your note' })).toHaveValue(/ #beattheminer$/)
+  await expect(page.getByRole('textbox', { name: 'Your note' })).toHaveValue(/ #blockoftheday$/)
   await page.getByRole('button', { name: 'Not now' }).click()
   await expect(page.getByText('🔥 5-day streak', { exact: true })).toBeVisible()
 
@@ -110,7 +113,7 @@ test('beat the miner: take or pass until the block is found, then a streak and a
   expect(runs.map((r) => JSON.parse(r.content).moves)).toEqual([encodeMoves(moves)])
   expect(runs[0].tags).toContainEqual(['score', String(state.fees)])
   expect(runs[0].tags).toContainEqual(['streak', '5'])
-  // Bob is told only if Alice beat him.
-  expect(runs[0].tags.some((t) => t[0] === 'p' && t[1] === getPublicKey(bob))).toBe(state.fees > bobFees)
+  // Runs name nobody: there are no "beat your block" notices.
+  expect(runs[0].tags.some((t) => t[0] === 'p')).toBe(false)
   expectNoErrors(alice)
 })

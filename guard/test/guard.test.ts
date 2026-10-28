@@ -428,7 +428,7 @@ describe('streaks', () => {
   })
 })
 
-describe('Beat the Miner runs', () => {
+describe('Block of the Day runs', () => {
   it("admits runs unchecked when the day's transactions can't be read", async () => {
     const p = createPolicy({ relayUrl: HOME, findBlock: async () => block, findDeal: () => Promise.reject(new Error('offline')), perMinute: 100, perIpMinute: 1000, perIpDay: 100_000 })
     expect(await p.decide(run(200))).toEqual({ permit: true })

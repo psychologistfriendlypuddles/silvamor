@@ -5,7 +5,7 @@ A small companion to relay.silvamor.com (nostr-rs-relay). It does these jobs:
 - **Event admission.** The relay asks it about every incoming event (gRPC, nostr-rs-relay's
   `nauthz` API) before storing it. It admits only Silvamor's event kinds, and gives each a size
   cap and a shape check (`src/policy.ts`), so junk of an allowed kind is refused too. For example:
-  Beat the Miner runs must replay on the day's transactions to the fees they claim (the app's own
+  Block of the Day runs must replay on the day's transactions to the fees they claim (the app's own
   check, `../src/lib/nostr/minerRuns.ts`), and a run claiming an N-day streak needs the player's run
   for the day before, stored here, to claim N − 1 (the guard reads it from the relay's database;
   [docs/PROTOCOL.md](../docs/PROTOCOL.md), "Streaks"). Runs also have to

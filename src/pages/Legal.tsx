@@ -238,7 +238,7 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
           <li>your login: your public key, plus, if you chose to be remembered, your private key encrypted with your password (NIP-49);</li>
           <li>a device key used only to talk to your signer app;</li>
           <li>your relay list and settings, and a cached copy of your shop settings;</li>
-          <li>your game runs in progress, the Bitcoin block that seeded the day’s games, and the day’s Beat the Miner transactions;</li>
+          <li>your game runs in progress, the Bitcoin block that seeded the day’s games, and the day’s Block of the Day transactions;</li>
           <li>if you connect one, your wallet connection (Nostr Wallet Connect).</li>
         </ul>
         <p>

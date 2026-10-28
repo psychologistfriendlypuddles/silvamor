@@ -4,7 +4,7 @@ import { IllegalMove, type Rules } from '../types'
 import { generator } from '../random'
 import type { TxFacts } from './facts'
 
-// Beat the Miner (docs/PROTOCOL.md, "Beat the Miner"): real transactions from the day's seed block
+// Block of the Day (docs/PROTOCOL.md, "Block of the Day"): real transactions from the day's seed block
 // arrive one at a time; take each into your block or pass on it for good, until the block is
 // found at a moment you don't know. Fill it with more fees than the miner.
 
@@ -234,5 +234,3 @@ export function bestFees(deal: MinerDeal): number {
   return fees[deal.capacity]
 }
 
-/** Your fees as a whole percentage of another total (the miner's, or the best possible). */
-export const percentOf = (fees: number, of: number) => (of > 0 ? Math.round((fees / of) * 100) : 100)

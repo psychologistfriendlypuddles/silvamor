@@ -7,13 +7,13 @@ as a Progressive Web App (no app stores). Players log in with their Nostr key, p
 their friends did. Every move is a signed Nostr event that any client can replay and check, so there
 is no game server.
 
-The game is **Beat the Miner**: real transactions from the day's first Bitcoin block arrive one by
+The game is **Block of the Day**: real transactions from the day's first Bitcoin block arrive one by
 one, and you fill a block with more fees than the NPC miner. Everyone gets the same game each day.
 More games are planned.
 
 ## Features
 
-**Beat the Miner**
+**Block of the Day**
 - Each day, 30 real transactions from the first Bitcoin block after midnight UTC arrive one at a
   time, mempool.space style; take each into your block (✓, or swipe down) or pass on it for good
   (✗, or swipe up). Children only go in with their parent
@@ -74,7 +74,7 @@ npm run lint
 npm test           # unit tests (rules, runs, push service, sprites, moderation…)
 npm run e2e        # end-to-end tests with several browsers (system Chromium, a few minutes)
 npm run push:build # build the push service (push/dist/server.mjs); npm run push:start runs it
-npm run stats      # Beat the Miner players per day, from Silvamor's relay
+npm run stats      # Block of the Day players per day, from Silvamor's relay
 ```
 
 To develop without touching public relays, run the bundled in-memory relay and point the app at it.
@@ -114,7 +114,7 @@ All optional; set them when running `npm run build` (or `npm run dev`).
 
 ### Stats
 
-`npm run stats` counts Beat the Miner players per day over the last 30 days (UTC), with each day's top
+`npm run stats` counts Block of the Day players per day over the last 30 days (UTC), with each day's top
 fees, straight from Silvamor's relay: nothing to deploy. A player counts once a day, by their first
 published run; scores are as claimed (the app replays them, this script doesn't).
 

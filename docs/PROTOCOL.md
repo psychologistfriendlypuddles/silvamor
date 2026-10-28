@@ -8,7 +8,7 @@ leaderboards. No server is involved.
 
 | Kind    | Type        | Author | Purpose                                      |
 |---------|-------------|--------|----------------------------------------------|
-| `1953`  | regular     | player | Beat the Miner run (see "Publishing a run")  |
+| `1953`  | regular     | player | Block of the Day run (see "Publishing a run")  |
 | `30951` | addressable | artist | Player sprite (see [SPRITES.md](SPRITES.md)) |
 
 Standard Nostr events the app also uses:
@@ -42,7 +42,7 @@ words w0..w7 and seed an sfc32 generator with a = w0^w4, b = w1^w5, c = w2^w6, d
 its first 15 outputs. `below(n)` is floor(u × n / 2³²) for the next output u. A shuffle is
 Fisher–Yates from the end: for i = n−1 down to 1, swap item i with item `below(i + 1)`.
 
-## Beat the Miner
+## Block of the Day
 
 Each day's game is built from the day's seed block. Its seed is
 `sha256("silvamor/miner/<YYYY-MM-DD>/<seed block hash>")`, hex, driving the generator above. The
@@ -81,7 +81,7 @@ When the block is found, the player publishes their run once:
   "tags": [["L", "silvamor/miner"], ["l", "<day>", "silvamor/miner"],
            ["block", "<seed block height>", "<seed block hash>"], ["score", "<sats>"],
            ["streak", "<days in a row>"],
-           ["alt", "Beat the Miner on Silvamor: <sats> sats in fees"]] }
+           ["alt", "Block of the Day on Silvamor: <sats> sats in fees"]] }
 ```
 
 `moves` has one letter per transaction offered: `t` (take) or `p` (pass). The NIP-32 label (`l`)

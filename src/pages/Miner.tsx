@@ -22,7 +22,7 @@ import { dayOf } from '../games/day'
 import { MinerBoard } from '../games/miner/Board'
 import { GameInfo } from '../games/miner/GameInfo'
 import { dealFor, loadDeal, loadMoves, saveMoves } from '../games/miner/local'
-import { bestFees, decodeMoves, encodeMoves, minerFees, minerRules, minerSeed, percentOf, type MinerDeal, type MinerMove, type MinerState } from '../games/miner/rules'
+import { bestFees, decodeMoves, encodeMoves, minerFees, minerRules, minerSeed, type MinerDeal, type MinerMove, type MinerState } from '../games/miner/rules'
 import { GAME_TAG, sats, shareText } from '../games/miner/share'
 
 export function MinerPage() {
@@ -32,7 +32,7 @@ export function MinerPage() {
     <div>
       <PageTitle
         emoji="⛏️"
-        title="Beat the Miner"
+        title="Block of the Day"
         subtitle="Real transactions from today's first Bitcoin block arrive one by one. Take them or pass, and fill your block with more fees than the NPC miner. Just remember: the block could be found any moment!"
       />
       <DayBlock day={day} seeds="Today's transactions are picked">
@@ -190,7 +190,6 @@ function Run({ day, block, deal }: { day: string; block: Block; deal: MinerDeal 
       </div>
     )
   }
-  const ofMiner = percentOf(shown.fees, minerFees(deal))
   const myStreak = mine ? streakOf(mine) : nextStreak(yesterday.streaks.get(pubkey))
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-4">
@@ -211,7 +210,7 @@ function Run({ day, block, deal }: { day: string; block: Block; deal: MinerDeal 
       <SharePrompt
         open={sharing}
         hashtag={GAME_TAG}
-        text={() => shareText(day, block.height, shown.fees, ofMiner, myStreak, location.origin)}
+        text={() => shareText(day, block.height, shown.fees, minerFees(deal), myStreak, location.origin)}
         onClose={() => {
           markShareOffered('miner', pubkey, day)
           setSharing(false)
@@ -240,13 +239,18 @@ function Summary({ deal, state, block, sprite, streak }: { deal: MinerDeal; stat
       </motion.p>
       {streak > 1 && <p className="-mt-2 font-semibold text-tangerine">🔥 {streak}-day streak</p>}
       <p className={`font-semibold ${won ? 'text-mint' : 'text-tangerine'}`}>
-        {won ? 'You beat the miner!' : state.fees === miner ? 'A tie with the miner.' : 'The miner wins today.'} {percentOf(state.fees, miner)}% of the miner's {sats(miner)}
+        {won
+          ? `You beat the miner by ${sats(state.fees - miner)}!`
+          : state.fees === miner
+            ? 'A tie with the miner!'
+            : `The miner wins today by ${sats(miner - state.fees)}.`}{' '}
+        The miner's block: {sats(miner)}
       </p>
       <dl className="grid w-full grid-cols-2 gap-2 text-sm">
         <div className="rounded-2xl bg-night-950/60 px-3 py-2">
           <dt className="text-white/50">Best block possible</dt>
           <dd className="font-semibold">
-            {sats(best)} <span className="text-white/50">(you: {percentOf(state.fees, best)}%)</span>
+            {sats(best)} <span className="text-white/50">({state.fees >= best ? 'you got it!' : `you: ${sats(best - state.fees)} short`})</span>
           </dd>
         </div>
         <div className="rounded-2xl bg-night-950/60 px-3 py-2">
