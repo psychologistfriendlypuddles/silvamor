@@ -34,7 +34,6 @@ export interface GuardConfig {
   /** The relay's public address, which requests to vanish must name. */
   relayUrl: string
   blockSources: string[]
-  perMinute: number
   perIpMinute: number
   perIpDay: number
   /** The relay's SQLite file, for cleanup and requests to vanish. Without it there's neither. */
@@ -50,7 +49,6 @@ export function configFromEnv(env = process.env): GuardConfig {
     listen: env.LISTEN ?? '0.0.0.0:50051',
     relayUrl: env.RELAY_URL ?? 'wss://relay.silvamor.com',
     blockSources: list(env.BLOCK_SOURCES, ['https://mempool.space/api/blocks/tip/height', 'https://blockstream.info/api/blocks/tip/height']),
-    perMinute: Number(env.PER_MINUTE ?? 30),
     perIpMinute: Number(env.PER_IP_MINUTE ?? 60),
     perIpDay: Number(env.PER_IP_DAY ?? 2000),
     relayDb: env.RELAY_DB || null,
@@ -111,7 +109,6 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
     createPolicy({
       findBlock: (t) => findFirstBlockAfter(t, config.blockSources),
       findDeal: (day, block) => fetchDeal(day, block, config.blockSources),
-      perMinute: config.perMinute,
       perIpMinute: config.perIpMinute,
       perIpDay: config.perIpDay,
       relayUrl: config.relayUrl,

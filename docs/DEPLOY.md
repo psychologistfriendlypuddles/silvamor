@@ -107,7 +107,7 @@ the guard has a Docker health check.
 | Size and time limits (relay config) | Events over 256 KB (room for follow lists of about 3,500 people), or dated more than 30 minutes ahead, are refused |
 | `limit_scrapers` (relay config) | Vague "give me everything" queries are refused; every query Silvamor makes is narrow enough |
 | Relay guard: admission | Each kind gets a size cap and a shape check, so junk of an allowed kind is refused too: runs must arrive as they're made and replay to their score, reports must be about a sprite (notes at most 83 characters, 1 KB in all), settings must be Silvamor's own, sprites must be valid, and so on |
-| Relay guard: rate limits | 30 events a minute per author; 60 a minute and 2,000 a day per IP address, however many keys it uses (the relay reads each player's real address from the proxy's `X-Real-IP` header) |
+| Relay guard: rate limits | 60 events a minute and 2,000 a day per IP address, however many keys it uses; none per key, since anyone can resend a key's events (the relay reads each player's real address from the proxy's `X-Real-IP` header) |
 | Relay guard: clean-up | Deletes runs and tip receipts after 30 days, as the privacy policy promises; keeps sprite reports |
 | Relay guard: requests to vanish | "Delete my data" on the Profile page sends a NIP-62 request naming this relay; the guard deletes everything that key published here and refuses those events if they're uploaded again |
 | Relay guard: sweep | Every minute, checks the runs stored in the last two hours again (all of them after it starts) and deletes the ones it would have refused, such as runs stored while it was down |

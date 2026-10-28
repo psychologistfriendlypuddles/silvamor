@@ -81,12 +81,9 @@ export interface PolicyOptions {
   findDeal(day: string, block: Block): Promise<MinerDeal>
   /** How long a run may wait for its day's block and deal to be read before it's refused for now (default 2.5 s). */
   lookupMs?: number
-  /** Events one author may publish per minute. */
-  perMinute: number
   /**
-   * Events one IP address may publish per minute and per day, whatever keys it uses, so
-   * throwaway keys don't get around `perMinute`. Generous, because many players can share an
-   * address (a school, an office, a mobile network).
+   * Events one IP address may publish per minute and per day, whatever keys it uses. Generous,
+   * because many players can share an address (a school, an office, a mobile network).
    */
   perIpMinute: number
   perIpDay: number
@@ -124,7 +121,6 @@ const deny = (message: string): Decision => ({ permit: false, message })
 export function createPolicy(opts: PolicyOptions) {
   const now = opts.now ?? (() => Date.now())
   const log = opts.log ?? (() => {})
-  const authorMinute = rateLimit(60_000, opts.perMinute, now)
   const ipMinute = rateLimit(60_000, opts.perIpMinute, now)
   const ipDay = rateLimit(24 * 3600_000, opts.perIpDay, now)
 
@@ -201,13 +197,14 @@ export function createPolicy(opts: PolicyOptions) {
   return {
     /** `from.ip`: the sender's address, as the relay saw it (absent when it doesn't say). */
     async decide(event: Event, from: { ip?: string } = {}): Promise<Decision> {
-      // Every limit counts every attempt at a kind kept here, so a sender who keeps pushing stays blocked.
-      if (KINDS[event.kind]) {
-        const ipOverMinute = from.ip ? ipMinute(from.ip) : false
-        const ipOverDay = from.ip ? ipDay(from.ip) : false
-        const authorOver = authorMinute(event.pubkey)
-        if (ipOverDay) return deny('too many events from your network today, try again tomorrow')
-        if (ipOverMinute || authorOver) return deny('too many events, slow down')
+      // The limits count every attempt at a kind kept here, so a sender who keeps pushing stays blocked.
+      // They're per address, not per key: a key's events are public, so anyone could send them again
+      // to use up the key's limit and lock its owner out.
+      if (KINDS[event.kind] && from.ip) {
+        const overMinute = ipMinute(from.ip)
+        const overDay = ipDay(from.ip)
+        if (overDay) return deny('too many events from your network today, try again tomorrow')
+        if (overMinute) return deny('too many events, slow down')
       }
       return check(event, now() / 1000, opts.lookupMs ?? 2500)
     },

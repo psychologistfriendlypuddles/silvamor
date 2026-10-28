@@ -14,10 +14,10 @@ A small companion to relay.silvamor.com (nostr-rs-relay). It does these jobs:
   note of at most 83 characters and 1 KB in all (reports are kept for good); kind-30078 settings
   must be Silvamor's own (`d` tag starting `silvamor/`); sprites must be valid Silvamor sprites.
   Follow lists come from any Nostr app and can be long, so they only get a 256 KB cap.
-- **Rate limits.** Each author may publish 30 events a minute. Each IP address may publish 60 a
-  minute and 2,000 a day, however many keys it uses, so throwaway keys can't get around the
-  per-author limit: one machine can add at most a few MB a day. The limits are generous because
-  many players can share one address (a school, an office, a mobile network). For the address to
+- **Rate limits.** Each IP address may publish 60 events a minute and 2,000 a day, however many
+  keys it uses. There's no limit per key: a key's events are public, so anyone could send them
+  again to use up the key's limit and lock its owner out. The limits are generous because many
+  players can share one address (a school, an office, a mobile network). For the address to
   be the player's and not the proxy's, the relay needs `remote_ip_header` (see
   [deploy/nostr-rs-relay.toml](../deploy/nostr-rs-relay.toml)) and must be reachable only through
   the proxy, or a client could fake the header.
@@ -79,7 +79,6 @@ docker compose -f deploy/compose.yaml up -d --build
 |----------|---------|---------------|
 | `LISTEN` | `0.0.0.0:50051` | Address the relay connects to |
 | `BLOCK_SOURCES` | mempool.space, blockstream.info | Bitcoin block sources (Esplora API), to find each day's seed block and check runs |
-| `PER_MINUTE` | `30` | Events one author may publish per minute |
 | `PER_IP_MINUTE` | `60` | Events one IP address may publish per minute, whatever keys it uses |
 | `PER_IP_DAY` | `2000` | Events one IP address may publish per day, whatever keys it uses |
 | `RELAY_URL` | `wss://relay.silvamor.com` | This relay's address, which requests to vanish must name (or `ALL_RELAYS`) |
