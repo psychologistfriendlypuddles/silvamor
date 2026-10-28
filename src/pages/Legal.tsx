@@ -120,7 +120,7 @@ export function TermsPage({ standalone }: { standalone?: boolean }) {
           buys nothing, and can’t be refunded.
         </p>
         <p>
-          If you connect a wallet (Nostr Wallet Connect), the connection is stored only on your device and talks to your wallet directly. Give it a
+          If you connect a wallet (Nostr Wallet Connect), the connection is stored only on your device, encrypted to your key, and talks to your wallet directly. Give it a
           small budget. You’re responsible for anything it pays.
         </p>
       </Section>
@@ -239,7 +239,7 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
           <li>a device key used only to talk to your signer app;</li>
           <li>your relay list and settings, and a cached copy of your shop settings;</li>
           <li>your game runs in progress, the Bitcoin block that seeded the day’s games, and the day’s Block of the Day transactions;</li>
-          <li>if you connect one, your wallet connection (Nostr Wallet Connect).</li>
+          <li>if you connect one, your wallet connection (Nostr Wallet Connect), encrypted to your key.</li>
         </ul>
         <p>
           We never receive these. Logging out removes your login; the rest stays on the device until you clear your browser’s data for {SITE}. To

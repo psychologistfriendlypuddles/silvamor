@@ -34,7 +34,7 @@ export function useLightningPay(f: { address: string; sats: number; comment: str
 
 /** Fetches the invoice once, then pays it with the chosen method or shows it. */
 function useInvoicePay(getInvoice: () => Promise<string>, f: { onPaying?(): void; successText: string }) {
-  const { pubkey } = useSigner()
+  const { signer, pubkey } = useSigner()
   const [invoice, setInvoice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -45,7 +45,7 @@ function useInvoicePay(getInvoice: () => Promise<string>, f: { onPaying?(): void
       setInvoice(pr)
       if (method === 'qr') return
       f.onPaying?.()
-      await payInvoice(pubkey, pr, method)
+      await payInvoice(signer, pubkey, pr, method)
       toast.success(f.successText)
     } catch (err) {
       toast.error(err)

@@ -2,6 +2,7 @@ import { SimplePool } from 'nostr-tools/pool'
 import { finalizeEvent } from 'nostr-tools/pure'
 import * as nip04 from 'nostr-tools/nip04'
 import { hexToBytes } from 'nostr-tools/utils'
+import type { AppSigner } from './nostr/signers'
 
 // Paying Lightning invoices from the app: a connected wallet (Nostr Wallet Connect,
 // NIP-47), a browser extension (WebLN), or the player's own wallet via a QR code.
@@ -35,26 +36,47 @@ export function parseNwc(value: string): NwcConnection {
 }
 
 const nwcKey = (pubkey: string) => `silvamor:nwc:${pubkey}`
+/** Connections read during a login, by that login's signer, so they go with it. */
+const unlocked = new WeakMap<AppSigner, string>()
 
 /**
- * The connection string can spend from the wallet within whatever budget the user gave it,
- * so it's kept only in this browser (like a remembered login).
+ * The connection string can spend from the wallet within whatever budget the user gave it, so this
+ * browser keeps it only encrypted to the player's own key (NIP-44): stored, it's no use without the key.
  */
-export function savedNwc(pubkey: string): string | null {
+export async function saveNwc(signer: AppSigner, pubkey: string, connection: string) {
+  parseNwc(connection) // throws on garbage
+  localStorage.setItem(nwcKey(pubkey), await signer.nip44Encrypt(pubkey, connection.trim()))
+  unlocked.set(signer, connection.trim())
+}
+
+export function removeNwc(signer: AppSigner, pubkey: string) {
+  localStorage.removeItem(nwcKey(pubkey))
+  unlocked.delete(signer)
+}
+
+/** Whether a wallet is connected for `pubkey` in this browser. */
+export function hasNwc(pubkey: string): boolean {
   try {
-    return localStorage.getItem(nwcKey(pubkey))
+    return localStorage.getItem(nwcKey(pubkey)) !== null
   } catch {
-    return null
+    return false
   }
 }
 
-export function saveNwc(pubkey: string, connection: string | null) {
-  if (connection) {
-    parseNwc(connection) // throws on garbage
-    localStorage.setItem(nwcKey(pubkey), connection.trim())
-  } else {
-    localStorage.removeItem(nwcKey(pubkey))
+/** The connected wallet's link, decrypted with the player's key the first time it's needed in a login. */
+export async function connectedNwc(signer: AppSigner, pubkey: string): Promise<string> {
+  const known = unlocked.get(signer)
+  if (known) return known
+  const stored = localStorage.getItem(nwcKey(pubkey))
+  if (!stored) throw new Error('No wallet is connected on this device.')
+  // Earlier versions kept the link in the clear: encrypt it now.
+  if (stored.startsWith('nostr+walletconnect:')) {
+    await saveNwc(signer, pubkey, stored)
+    return stored
   }
+  const connection = await signer.nip44Decrypt(pubkey, stored)
+  unlocked.set(signer, connection)
+  return connection
 }
 
 export function isNwcConnection(value: string): boolean {
@@ -108,13 +130,13 @@ export async function payWithNwc(connection: string, invoice: string, timeoutMs 
 /** The ways this browser can pay right now, best first. */
 export function paymentMethods(pubkey: string): ('nwc' | 'webln')[] {
   const methods: ('nwc' | 'webln')[] = []
-  if (savedNwc(pubkey)) methods.push('nwc')
+  if (hasNwc(pubkey)) methods.push('nwc')
   if (typeof window !== 'undefined' && window.webln) methods.push('webln')
   return methods
 }
 
-export async function payInvoice(pubkey: string, invoice: string, method: 'nwc' | 'webln') {
-  if (method === 'nwc') return payWithNwc(savedNwc(pubkey)!, invoice)
+export async function payInvoice(signer: AppSigner, pubkey: string, invoice: string, method: 'nwc' | 'webln') {
+  if (method === 'nwc') return payWithNwc(await connectedNwc(signer, pubkey), invoice)
   await window.webln!.enable()
   await window.webln!.sendPayment(invoice)
 }

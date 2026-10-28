@@ -53,3 +53,18 @@ test('buying Silvamor a coffee: a plain Lightning payment, any amount', async ({
   expect(payments).toEqual([{ to: 'coffee', sats: 5000, comment: 'A coffee from a Silvamor player ☕' }])
   expectNoErrors(alice)
 })
+
+test("connecting a wallet keeps its link on the device only encrypted to the player's key, until disconnected", async ({ browser }) => {
+  const alice = await playerOnline(browser, 'Alice', '/profile')
+  const secret = 'b'.repeat(64)
+  await alice.page.getByLabel('Connection link').fill(`nostr+walletconnect://${'a'.repeat(64)}?relay=wss%3A%2F%2Frelay.example&secret=${secret}`)
+  await alice.page.getByRole('button', { name: 'Connect wallet' }).click()
+  await expect(alice.page.getByText('A wallet is connected on this device')).toBeVisible()
+  const kept = () => alice.page.evaluate((pubkey) => localStorage.getItem(`silvamor:nwc:${pubkey}`), alice.pubkey)
+  expect(await kept()).toBeTruthy()
+  expect(await kept()).not.toContain(secret)
+  await alice.page.getByRole('button', { name: 'Disconnect' }).click()
+  await expect(alice.page.getByRole('button', { name: 'Connect wallet' })).toBeVisible()
+  expect(await kept()).toBeNull()
+  expectNoErrors(alice)
+})
