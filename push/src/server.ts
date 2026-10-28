@@ -21,6 +21,25 @@ export interface ServiceConfig {
   remindHoursBefore: number
   dataDir: string
   vapidSubject: string
+  /** The push services subscriptions may point at (see PUSH_HOSTS). */
+  pushHosts: string[]
+}
+
+/**
+ * The push services browsers use: Google's (Chrome and other Chromium browsers), Mozilla's
+ * (Firefox), Apple's (Safari) and Microsoft's (Edge). Subscriptions may only point at these hosts or
+ * their subdomains, so nobody can make the service post to anything else.
+ */
+export const PUSH_HOSTS = ['fcm.googleapis.com', 'android.googleapis.com', 'push.services.mozilla.com', 'push.apple.com', 'notify.windows.com']
+
+/** Whether `endpoint` is an https address on one of `hosts` (or a subdomain of one), on the usual port. */
+function onPushHost(endpoint: string, hosts: string[]): boolean {
+  try {
+    const url = new URL(endpoint)
+    return url.protocol === 'https:' && !url.port && !url.username && hosts.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`))
+  } catch {
+    return false
+  }
 }
 
 export function configFromEnv(env = process.env): ServiceConfig {
@@ -36,6 +55,7 @@ export function configFromEnv(env = process.env): ServiceConfig {
     remindHoursBefore: Number(env.REMIND_HOURS_BEFORE ?? 4),
     dataDir: env.DATA_DIR ?? './push-data',
     vapidSubject: env.VAPID_SUBJECT ?? 'mailto:admin@example.com',
+    pushHosts: list(env.PUSH_HOSTS, PUSH_HOSTS),
   }
 }
 
@@ -48,10 +68,13 @@ function loadVapidKeys(dataDir: string): { publicKey: string; privateKey: string
   return keys
 }
 
-export function webPushSender(vapid: { publicKey: string; privateKey: string }, subject: string) {
+export function webPushSender(vapid: { publicKey: string; privateKey: string }, subject: string, hosts: string[]) {
   return async (sub: PushSubscriptionData, payload: PushPayload): Promise<SendResult> => {
+    // Subscriptions kept from before hosts were checked, or on a host since taken off the list.
+    if (!onPushHost(sub.endpoint, hosts)) return 'gone'
     try {
-      await webpush.sendNotification(sub, JSON.stringify(payload), { vapidDetails: { subject, ...vapid }, TTL: 24 * 3600 })
+      // A push service that goes quiet for 10 seconds is given up on.
+      await webpush.sendNotification(sub, JSON.stringify(payload), { vapidDetails: { subject, ...vapid }, TTL: 24 * 3600, timeout: 10_000 })
       return 'ok'
     } catch (err) {
       const status = (err as { statusCode?: number }).statusCode
@@ -93,7 +116,7 @@ export function startService(config: ServiceConfig, deps: { store?: Store; watch
     createWatchtower({
       relays: config.relays,
       store,
-      send: webPushSender(vapid!, config.vapidSubject),
+      send: webPushSender(vapid!, config.vapidSubject, config.pushHosts),
       appUrl: config.appUrl,
       remindHoursBefore: config.remindHoursBefore,
       log: (m) => console.log(m),
@@ -129,6 +152,7 @@ export function startService(config: ServiceConfig, deps: { store?: Store; watch
 
         if (req.method === 'POST') {
           if (!isSubscription(body.subscription)) return send(res, 400, { error: 'Missing or invalid push subscription.' })
+          if (!onPushHost(body.subscription.endpoint, config.pushHosts)) return send(res, 400, { error: "This push server doesn't send to your browser's push service." })
           store.addSubscription(pubkey, body.subscription)
           return send(res, 201, { ok: true })
         }

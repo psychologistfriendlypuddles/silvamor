@@ -5,6 +5,9 @@ export interface PushSubscriptionData {
   keys: { p256dh: string; auth: string }
 }
 
+/** Browsers one key can get reminders on: a new one replaces the oldest, so no key can pile them up. */
+export const MAX_SUBSCRIPTIONS_PER_KEY = 5
+
 /** Everything the service remembers, in one SQLite file (or ':memory:' for tests). */
 export class Store {
   private db: DatabaseSync
@@ -28,6 +31,10 @@ export class Store {
     this.db
       .prepare('INSERT OR REPLACE INTO subscriptions (endpoint, pubkey, keys, created_at) VALUES (?, ?, ?, ?)')
       .run(sub.endpoint, pubkey, JSON.stringify(sub.keys), Date.now())
+    // A replaced row gets a new rowid, so the newest are the ones with the highest.
+    this.db
+      .prepare('DELETE FROM subscriptions WHERE pubkey = ? AND rowid NOT IN (SELECT rowid FROM subscriptions WHERE pubkey = ? ORDER BY rowid DESC LIMIT ?)')
+      .run(pubkey, pubkey, MAX_SUBSCRIPTIONS_PER_KEY)
   }
 
   /** Removes a subscription; with `pubkey`, only if it belongs to them. */

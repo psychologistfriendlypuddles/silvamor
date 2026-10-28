@@ -29,12 +29,31 @@ export interface WatchtowerOptions {
   remindHoursBefore?: number
   /** How often to look, in milliseconds (default 5 minutes); 0 never looks by itself (tests call `tick`). */
   every?: number
+  /** How long one push may take before it counts as an error, in milliseconds (default 15 seconds). */
+  sendTimeoutMs?: number
   /** The time now (ms), for tests. */
   now?: () => number
   log?: (message: string) => void
 }
 
 const DAY_SECONDS = 24 * 3600
+/** Players reminded at once, so one slow push service can't hold everyone else up. */
+const AT_ONCE = 8
+
+/** What `promise` gives, or `otherwise` if it takes longer than `ms`. */
+function within<T>(promise: Promise<T>, ms: number, otherwise: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([promise, new Promise<T>((resolve) => (timer = setTimeout(() => resolve(otherwise), ms)))]).finally(() => clearTimeout(timer))
+}
+
+/** Runs `task` on every item, at most `limit` at a time. */
+async function eachConcurrently<T>(items: T[], limit: number, task: (item: T) => Promise<void>) {
+  let next = 0
+  const worker = async () => {
+    while (next < items.length) await task(items[next++])
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+}
 
 export function createWatchtower(opts: WatchtowerOptions) {
   const log = opts.log ?? (() => {})
@@ -72,15 +91,15 @@ export function createWatchtower(opts: WatchtowerOptions) {
     if (pending.length === 0) return
     const yesterday = previousDay(day)
     const runs = await firstRuns(pending, [yesterday, day])
-    for (const pubkey of pending) {
+    await eachConcurrently(pending, AT_ONCE, async (pubkey) => {
       if (closed) return
       if (runs.has(`${pubkey}:${day}`)) {
         opts.store.markSent(pubkey, [id]) // played today: nothing to remind
-        continue
+        return
       }
       // No streak to keep (or the relay didn't answer): look again next time.
       const streak = runs.get(`${pubkey}:${yesterday}`)?.streak
-      if (!streak) continue
+      if (!streak) return
       opts.store.markSent(pubkey, [id]) // first, so a slow push can't go out twice
       const hours = Math.max(1, Math.round((ends - at) / 3600))
       await deliver(pubkey, {
@@ -89,12 +108,13 @@ export function createWatchtower(opts: WatchtowerOptions) {
         url: `${opts.appUrl}/`,
         tag: id,
       })
-    }
+    })
   }
 
   async function deliver(pubkey: string, payload: PushPayload) {
     for (const s of opts.store.subscriptionsFor(pubkey)) {
-      const result = await opts.send(s, payload).catch((): SendResult => 'error')
+      // A push service that doesn't answer in time counts as an error, rather than holding up the rest.
+      const result = await within(opts.send(s, payload).catch((): SendResult => 'error'), opts.sendTimeoutMs ?? 15_000, 'error')
       if (result === 'gone') opts.store.removeSubscription(s.endpoint)
       log(`push ${result}: ${payload.body}`)
     }

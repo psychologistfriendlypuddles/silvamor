@@ -45,6 +45,7 @@ call HTTPS services.
 | `REMIND_HOURS_BEFORE` | `4` | How long before the day ends (midnight UTC) to remind |
 | `DATA_DIR` | `./push-data` (`/data` in Docker) | Where `push.sqlite` and `vapid.json` live. Keep it: losing `vapid.json` invalidates every subscription. |
 | `VAPID_SUBJECT` | `mailto:admin@example.com` | Contact the push services can reach you at |
+| `PUSH_HOSTS` | `fcm.googleapis.com,android.googleapis.com,push.services.mozilla.com,push.apple.com,notify.windows.com` | The browser push services subscriptions may point at (each with its subdomains): Chrome and other Chromium browsers, Firefox, Safari and Edge. Others are refused, so the service never posts anywhere else. |
 
 ## API
 
@@ -56,4 +57,6 @@ call HTTPS services.
 | `GET` | `/health` | `{ ok, subscribers }` |
 
 Each player gets at most one reminder a day, and none once they've played. Expired subscriptions
-are removed.
+are removed. A key keeps reminders on its 5 newest browsers; subscribing a sixth drops the oldest.
+Reminders go out to several players at once, and a push service that doesn't answer within 15
+seconds counts as a failed push, so it can't hold up anyone else's.

@@ -44,6 +44,8 @@ export default defineConfig({
         ALLOWED_ORIGINS: 'http://localhost:4174',
         RELAYS: 'ws://localhost:7777',
         DATA_DIR: 'push-data-e2e',
+        // The stand-in browser subscription in tests/e2e/push.e2e.ts.
+        PUSH_HOSTS: 'push.example',
       },
       timeout: 120_000,
       reuseExistingServer: false,
