@@ -8,7 +8,9 @@
 
 services:
   relay:
-    image: scsibug/nostr-rs-relay:latest # pin to the version you run
+    # nostr-rs-relay 0.10.0, pinned: the guard reads and deletes straight from its database, so
+    # upgrade on purpose, after checking the guard still works with the new version's database.
+    image: scsibug/nostr-rs-relay@sha256:48d54c2d2781577cf3ed2951112f0953dc2c5e7c9d2ea20c64e8c0fa37d16e4d
     restart: unless-stopped
     # Only the proxy should reach the relay: the per-IP limits trust the address header it sets,
     # which a client connecting directly could fake. Publish on localhost (or join the proxy's
