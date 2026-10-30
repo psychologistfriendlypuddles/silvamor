@@ -26,9 +26,9 @@ function open(dbPath: string) {
 /**
  * Deletes every event `pubkey` (hex) published up to `before` (unix seconds), as its request to
  * vanish asks. Earlier vanish requests stay, so the relay keeps refusing those events if someone
- * uploads them again. Returns how many events were deleted.
+ * uploads them again. Returns how many events were deleted, and the ids of the runs among them.
  */
-export function erase(dbPath: string, pubkey: string, before: number): number {
+export function erase(dbPath: string, pubkey: string, before: number): { deleted: number; runs: string[] } {
   const db = open(dbPath)
   try {
     const author = hexToBytes(pubkey)
@@ -39,9 +39,12 @@ export function erase(dbPath: string, pubkey: string, before: number): number {
       if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'user_verification'").get()) {
         db.prepare(`DELETE FROM user_verification WHERE metadata_event IN (${mine})`).run(author, before, VANISH_KIND)
       }
-      const n = Number(db.prepare(`DELETE FROM event WHERE id IN (${mine})`).run(author, before, VANISH_KIND).changes)
+      const runs = db
+        .prepare('SELECT lower(hex(event_hash)) AS id FROM event WHERE author = ? AND created_at <= ? AND kind = 1953')
+        .all(author, before) as { id: string }[]
+      const deleted = Number(db.prepare(`DELETE FROM event WHERE id IN (${mine})`).run(author, before, VANISH_KIND).changes)
       db.exec('COMMIT')
-      return n
+      return { deleted, runs: runs.map((r) => r.id) }
     } catch (err) {
       db.exec('ROLLBACK')
       throw err

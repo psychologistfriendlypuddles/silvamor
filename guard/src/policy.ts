@@ -3,7 +3,7 @@ import { dayOf, dayStart, previousDay } from '../../src/games/day'
 import { FEATURED_D, MAX_REPORT_NOTE } from '../../src/lib/moderation'
 import { parseSprite } from '../../src/lib/sprites'
 import type { Block } from '../../src/lib/bitcoin'
-import { madeOnItsDay, parseMinerRun, verifyMinerRun } from '../../src/lib/nostr/minerRuns'
+import { madeOnItsDay, parseMinerRun, verifyMinerRun, type MinerRun } from '../../src/lib/nostr/minerRuns'
 import type { MinerDeal } from '../../src/games/miner/rules'
 
 // What relay.silvamor.com accepts (docs/DEPLOY.md, "Relays"). The relay's own config already
@@ -166,6 +166,19 @@ export function createPolicy(opts: PolicyOptions) {
     return games.get(day)
   }
 
+  /** A key that asked to vanish stays forgotten: what it published before can't be uploaded again. */
+  function forgotten(event: Event): Decision | null {
+    const vanished = opts.vanishedAt?.(event.pubkey)
+    return vanished !== undefined && event.created_at <= vanished && event.kind !== 62 ? deny('this key asked this relay to delete its events') : null
+  }
+
+  /** A streak links to the day before: that day's run here must claim one day less. */
+  function brokenStreak(event: Event, run: MinerRun): Decision | null {
+    if (run.streak <= 1) return null
+    const before = opts.streaksOn?.(event.pubkey, previousDay(run.day))
+    return before && !before.includes(run.streak - 1) ? deny(`a ${run.streak}-day streak needs a ${run.streak - 1}-day streak the day before`) : null
+  }
+
   /** A run as it reached the relay at `at` (unix seconds), waiting up to `waitMs` for its day to be read. */
   async function checkMinerRun(event: Event, at: number, waitMs: number): Promise<Decision> {
     const run = parseMinerRun(event)
@@ -177,21 +190,15 @@ export function createPolicy(opts: PolicyOptions) {
     const game = await dayGame(run.day, waitMs)
     if (!game) return { ...deny(`can't check runs for ${run.day} yet, try again in a minute`), later: true }
     if (!verifyMinerRun(run, game.block, game.deal)) return deny("the run doesn't replay to its fees")
-    // A streak links to the day before: that day's run here must claim one day less.
-    if (run.streak > 1) {
-      const before = opts.streaksOn?.(event.pubkey, previousDay(run.day))
-      if (before && !before.includes(run.streak - 1)) return deny(`a ${run.streak}-day streak needs a ${run.streak - 1}-day streak the day before`)
-    }
-    return permit
+    return brokenStreak(event, run) ?? permit
   }
 
   /** Whether an event belongs here, but for the rate limits: as it reached the relay at `at` (unix seconds). */
   async function check(event: Event, at: number, waitMs: number): Promise<Decision> {
     const rule = KINDS[event.kind]
     if (!rule) return deny(`Silvamor's relay doesn't keep kind ${event.kind}`)
-    // A key that asked to vanish stays forgotten: what it published before can't be uploaded again.
-    const vanished = opts.vanishedAt?.(event.pubkey)
-    if (vanished !== undefined && event.created_at <= vanished && event.kind !== 62) return deny('this key asked this relay to delete its events')
+    const gone = forgotten(event)
+    if (gone) return gone
     if (sizeOf(event) > rule.maxBytes) return deny(`kind ${event.kind} events are limited to ${rule.maxBytes / 1024} KB here`)
     const wrong = rule.wrong?.(event)
     if (wrong) return deny(wrong)
@@ -242,6 +249,15 @@ export function createPolicy(opts: PolicyOptions) {
      * the sweep: the same rules without the rate limits, waiting longer for a run's day to be read.
      */
     recheck: (event: Event, at: number) => check(event, at, SWEEP_WAIT_MS),
+    /**
+     * For the sweep, a run this guard has found valid before: only what can change after that, its key
+     * asking to vanish or the run its streak extends being deleted. Its fees, day and shape aren't judged
+     * again, since the game's rules or the day's block may have changed since it passed.
+     */
+    stillStands(event: Event): Decision {
+      const run = parseMinerRun(event)
+      return forgotten(event) ?? (run && brokenStreak(event, run)) ?? permit
+    },
   }
 }
 

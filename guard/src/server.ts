@@ -1,3 +1,4 @@
+import { dirname, join } from 'node:path'
 import * as grpc from '@grpc/grpc-js'
 import * as protoLoader from '@grpc/proto-loader'
 import protobuf from 'protobufjs'
@@ -8,6 +9,7 @@ import { dayStart } from '../../src/games/day'
 import { fetchDeal } from '../../src/games/miner/deal'
 import { MINER_RUN_KIND } from '../../src/lib/nostr/minerRuns'
 import { createPolicy, type Policy } from './policy'
+import { CheckedRuns } from './checked'
 import { VANISH_KIND, erase, parseRetention, prune, pruneNonPlayers, storedStreaks, sweepRuns, vanishRequests, type Retention } from './cleanup'
 import nauthzProto from '../proto/nauthz.proto?raw'
 
@@ -111,6 +113,9 @@ export function streaksFrom(config: Pick<GuardConfig, 'relayDb' | 'retention'>, 
   }
 }
 
+/** The guard's own record of the runs it has found valid (see checked.ts): a file beside the relay's database. */
+export const checkedRunsPath = (relayDb: string) => join(dirname(relayDb), 'silvamor-guard.db')
+
 export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (m: string) => void } = {}) {
   const log = deps.log ?? ((m: string) => console.log(m))
   // Keys that asked to vanish, and when: kept in the relay itself, as their requests.
@@ -120,6 +125,17 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
       for (const [pubkey, at] of vanishRequests(config.relayDb)) vanished.set(pubkey, at)
     } catch (err) {
       log(`couldn't read requests to vanish: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+  // The runs it has found valid, which no sweep judges again (see checked.ts). Without that file, every
+  // sweep judges every run in full, as before it existed: a risk once the game's rules change, but
+  // better than no guard.
+  let checkedRuns: CheckedRuns | null = null
+  if (config.relayDb) {
+    try {
+      checkedRuns = new CheckedRuns(checkedRunsPath(config.relayDb))
+    } catch (err) {
+      log(`couldn't open ${checkedRunsPath(config.relayDb)}, so every sweep judges every run in full: ${err instanceof Error ? err.message : err}`)
     }
   }
   const policy =
@@ -144,6 +160,9 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
         .decide(event, { ip })
         .then((d) => (d.permit && event.kind === VANISH_KIND ? vanish(event) : d))
         .then((d) => {
+          // Remembered before the relay hears yes, so no sweep judges this run again. If that fails, the
+          // run is refused below, like any other error on a run.
+          if (d.permit && event.kind === MINER_RUN_KIND) checkedRuns?.add(event.id, event.created_at)
           if (!d.permit && event.pubkey !== HEALTH_PUBKEY) log(`deny kind ${event.kind} ${event.id} from ${ip ?? 'unknown address'}: ${d.message}`)
           callback(null, { decision: d.permit ? PERMIT : DENY, message: d.message })
         })
@@ -162,11 +181,13 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
   function vanish(event: Event) {
     if (!config.relayDb) return { permit: false, message: "this relay can't delete events on request; ask its operator" }
     try {
-      const n = erase(config.relayDb, event.pubkey, event.created_at)
+      const { deleted: n, runs } = erase(config.relayDb, event.pubkey, event.created_at)
       // A key with nothing kept here has nothing to forget, so its request isn't kept either: anyone
       // could otherwise pile up requests from throwaway keys for good. (The app takes this as done.)
       if (n === 0 && !vanished.has(event.pubkey)) return { permit: false, message: 'nothing from this key is kept here' }
       vanished.set(event.pubkey, Math.max(event.created_at, vanished.get(event.pubkey) ?? 0))
+      // Nothing of the key's stays here but its request, not even the ids of its runs.
+      checkedRuns?.forget(runs)
       log(`request to vanish: deleted ${n} event${n === 1 ? '' : 's'}`)
       return { permit: true }
     } catch (err) {
@@ -181,6 +202,9 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
     try {
       const counts = prune(config.relayDb, config.retention, { dryRun: config.dryRun })
       const nonPlayers = pruneNonPlayers(config.relayDb, { dryRun: config.dryRun })
+      // The runs clean-up has deleted needn't be remembered.
+      const runDays = config.retention.find((r) => r.kind === MINER_RUN_KIND)?.days
+      if (!config.dryRun && runDays !== undefined) checkedRuns?.forgetBefore(Math.floor(Date.now() / 1000) - runDays * 86400)
       const kinds = Object.entries(counts).map(([k, n]) => `kind ${k}: ${n}, `).join('')
       log(`cleanup${config.dryRun ? ' (dry run, nothing deleted)' : ''}: ${kinds}profiles, follow lists and relay lists of keys with no runs: ${nonPlayers}`)
     } catch (err) {
@@ -204,11 +228,21 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
       // A request the relay kept without asking the guard deleted nothing. Carrying out one already
       // done deletes nothing more: the key's events from after it are left alone.
       for (const [pubkey, at] of vanishRequests(config.relayDb, since)) {
-        const n = erase(config.relayDb, pubkey, at)
+        const { deleted: n, runs } = erase(config.relayDb, pubkey, at)
         vanished.set(pubkey, Math.max(at, vanished.get(pubkey) ?? 0))
+        checkedRuns?.forget(runs)
         if (n) log(`request to vanish, kept while the guard was away: deleted ${n} event${n === 1 ? '' : 's'}`)
       }
-      const { checked, failed, later } = await sweepRuns(config.relayDb, since, policy.recheck, { dryRun: config.dryRun })
+      // A run it has found valid before, as it took it or in an earlier sweep, isn't judged again on its
+      // fees, day or shape: the game's rules or the day's block may have changed since. A run the relay
+      // stored without asking gets every check, and is remembered if it passes.
+      const judge = async (event: Event, at: number) => {
+        if (checkedRuns?.has(event.id)) return policy.stillStands(event)
+        const decision = await policy.recheck(event, at)
+        if (decision.permit) checkedRuns?.add(event.id, event.created_at)
+        return decision
+      }
+      const { checked, failed, later } = await sweepRuns(config.relayDb, since, judge, { dryRun: config.dryRun })
       const removed = [...failed.values()].reduce((sum, n) => sum + n, 0)
       if (!sweptAll || removed) {
         const reasons = [...failed].map(([why, n]) => `${n}× ${why}`).join('; ')
@@ -235,7 +269,10 @@ export function startGuard(config: GuardConfig, deps: { policy?: Policy; log?: (
             clearTimeout(first)
             clearInterval(daily)
             clearInterval(sweeps)
-            server.tryShutdown(() => done())
+            server.tryShutdown(() => {
+              checkedRuns?.close()
+              done()
+            })
           }),
       })
     })

@@ -110,7 +110,7 @@ the guard has a Docker health check.
 | Relay guard: rate limits | 60 events a minute, 2,000 a day and 20 MB kept a day per IP address, however many keys it uses (runs and requests to vanish aside from the 20 MB); none per key, since anyone can resend a key's events (the relay reads each player's real address from the proxy's `X-Real-IP` header) |
 | Relay guard: clean-up | Deletes runs and tip receipts after 30 days, as the privacy policy promises, and the profiles, follow lists and relay lists of keys with no runs left (players' apps copy them back at login); keeps sprite reports |
 | Relay guard: requests to vanish | "Delete my data" on the Profile page sends a NIP-62 request naming this relay; the guard deletes everything that key published here and refuses those events if they're uploaded again |
-| Relay guard: sweep | Every minute, carries out the requests to vanish stored in the last two hours and checks the runs stored then again (all of them after it starts), deleting the ones it would have refused: what the relay kept while the guard was down |
+| Relay guard: sweep | Every minute, carries out the requests to vanish stored in the last two hours and checks the runs stored then (all of them after it starts), deleting the ones it would have refused: what the relay kept while the guard was down. Runs it has already found valid aren't judged again on their fees or day, so a change to the game's rules can't delete them; it remembers those in `silvamor-guard.db` beside `nostr.db`, so keep the two together |
 
 Check the option names against the sample `config.toml` of the nostr-rs-relay version you run.
 If the guard is down, the relay admits events but still applies its allowlist: nothing is lost, and

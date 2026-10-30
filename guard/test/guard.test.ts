@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -12,9 +12,10 @@ import { buildMinerRun } from '../../src/lib/nostr/minerRuns'
 import { NOTHING_KEPT } from '../../src/lib/nostr/vanish'
 import type { MinerDeal } from '../../src/games/miner/rules'
 import { dayOf, dayStart, previousDay } from '../../src/games/day'
-import { createPolicy } from '../src/policy'
+import { createPolicy, type Policy } from '../src/policy'
 import { erase, parseRetention, prune, pruneNonPlayers, storedStreaks, sweepRuns, vanishRequests } from '../src/cleanup'
-import { checkHealth, configFromEnv, startGuard, streaksFrom } from '../src/server'
+import { CheckedRuns } from '../src/checked'
+import { checkHealth, checkedRunsPath, configFromEnv, startGuard, streaksFrom } from '../src/server'
 import nauthzProto from '../proto/nauthz.proto?raw'
 
 const HOME = 'wss://relay.silvamor.com'
@@ -323,7 +324,16 @@ describe('gRPC event admission', () => {
   it('refuses runs and requests to vanish when something goes wrong, and lets other events in', async () => {
     const broken = await startGuard(
       { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9, relayDb: null, retention: [], dryRun: true },
-      { policy: { decide: () => Promise.reject(new Error('bug')), recheck: () => Promise.reject(new Error('bug')) }, log: () => {} },
+      {
+        policy: {
+          decide: () => Promise.reject(new Error('bug')),
+          recheck: () => Promise.reject(new Error('bug')),
+          stillStands: () => {
+            throw new Error('bug')
+          },
+        },
+        log: () => {},
+      },
     )
     const def = protoLoader.fromJSON(protobuf.parse(nauthzProto, { keepCase: true }).root.toJSON(), { keepCase: true, longs: Number, enums: Number, defaults: true })
     const { Authorization } = grpc.loadPackageDefinition(def).nauthz as unknown as { Authorization: grpc.ServiceClientConstructor }
@@ -387,7 +397,7 @@ describe('requests to vanish (NIP-62)', () => {
 
   it("deletes everything the key published, with its tags, and nobody else's", () => {
     const path = storedDb()
-    expect(erase(path, me, now)).toBe(3)
+    expect(erase(path, me, now)).toEqual({ deleted: 3, runs: [] })
     expect(authors(path)).toEqual({ events: ['other:0'], tags: 1 })
     expect(vanishRequests(path)).toEqual(new Map())
     // The relay then stores the request itself, which is how the guard remembers it after a restart.
@@ -395,7 +405,7 @@ describe('requests to vanish (NIP-62)', () => {
     db.prepare("INSERT INTO event (event_hash, first_seen, created_at, author, kind, content) VALUES (x'09', 0, ?, ?, 62, '')").run(now, hexToBytes(me))
     db.close()
     expect(vanishRequests(path)).toEqual(new Map([[me, now]]))
-    expect(erase(path, me, now + 10)).toBe(0)
+    expect(erase(path, me, now + 10)).toEqual({ deleted: 0, runs: [] })
   })
 
   it('carries out a request the relay kept while the guard was away, within a sweep of its return', async () => {
@@ -698,5 +708,180 @@ describe('sweep', () => {
     } finally {
       await guard.close()
     }
+  })
+
+  // A sweep never deletes a run that was valid when it arrived, whatever has changed since.
+  describe('runs it has found valid', () => {
+    /** Today's deal as an update might read it: every fee a sat higher, so no run made before replays to its fees. */
+    const newRules = { ...deal, stream: deal.stream.map((tx) => ({ ...tx, fee: tx.fee + 1 })) }
+
+    /** Remembers `runs` as found valid by an earlier guard over `path`: as it took them, say. */
+    function took(path: string, ...runs: Event[]) {
+      const record = new CheckedRuns(checkedRunsPath(path))
+      for (const r of runs) record.add(r.id, r.created_at)
+      record.close()
+    }
+    /** Whether the guard over `path` remembers each of `runs`. */
+    function remembers(path: string, ...runs: Event[]) {
+      const record = new CheckedRuns(checkedRunsPath(path))
+      try {
+        return runs.map((r) => record.has(r.id))
+      } finally {
+        record.close()
+      }
+    }
+    /** Asks the guard listening on `port` about `e`, as nostr-rs-relay does: 1 is yes, 2 no. */
+    async function ask(port: number, e: Event) {
+      const def = protoLoader.fromJSON(protobuf.parse(nauthzProto, { keepCase: true }).root.toJSON(), { keepCase: true, longs: Number, enums: Number, defaults: true })
+      const { Authorization } = grpc.loadPackageDefinition(def).nauthz as unknown as { Authorization: grpc.ServiceClientConstructor }
+      const client = new Authorization(`127.0.0.1:${port}`, grpc.credentials.createInsecure()) as unknown as grpc.Client & {
+        EventAdmit: (req: unknown, cb: (err: Error | null, reply: { decision: number }) => void) => void
+      }
+      const event = { id: hexToBytes(e.id), pubkey: hexToBytes(e.pubkey), created_at: e.created_at, kind: e.kind, content: e.content, tags: e.tags.map((values) => ({ values })), sig: hexToBytes(e.sig) }
+      try {
+        return await new Promise<number>((resolve, reject) => client.EventAdmit({ event }, (err, reply) => (err ? reject(err) : resolve(reply.decision))))
+      } finally {
+        client.close()
+      }
+    }
+    /** A guard over the relay database at `path` that deletes for real; with `policy`, or else its own. */
+    const guardOver = (path: string, lines: string[], policy?: Policy) =>
+      startGuard(
+        { listen: '127.0.0.1:0', relayUrl: HOME, blockSources: [], perIpMinute: 1000, perIpDay: 100_000, perIpDayBytes: 1e9, relayDb: path, retention: [{ kind: 1953, days: 30 }], dryRun: false },
+        { policy, log: (m) => lines.push(m) },
+      )
+    /** The policy over `path` after an update that reads the day's block or deal differently. */
+    const updated = (path: string, change: { block?: typeof block; deal?: MinerDeal }) =>
+      createPolicy({
+        relayUrl: HOME,
+        findBlock: async () => change.block ?? block,
+        findDeal: async () => change.deal ?? deal,
+        perIpMinute: 1000,
+        perIpDay: 100_000,
+        perIpDayBytes: 1e9,
+        streaksOn: streaksFrom({ relayDb: path, retention: [{ kind: 1953, days: 30 }] }),
+      })
+
+    it.each([
+      { change: 'the rules change', deal: newRules },
+      { change: "the day's block changes (a reorg)", block: { ...block, hash: 'cd'.repeat(32) } },
+    ])("doesn't judge them again when $change: only runs stored without asking it", async ({ deal: newDeal, block: newBlock }) => {
+      const path = relayDb()
+      const mine = made(sk, day, t + 600) // taken before the update
+      store(path, mine, t + 605)
+      took(path, mine)
+      store(path, made(otherSk, day, t + 900), t + 905) // stored while the guard was away, for the update
+      const lines: string[] = []
+      const guard = await guardOver(path, lines, updated(path, { deal: newDeal, block: newBlock }))
+      try {
+        await guard.sweep()
+        expect(stored(path)).toEqual(new Set([mine.id]))
+        expect(lines).toEqual(["sweep: 2 runs checked, 1 failed (1× the run doesn't replay to its fees)"])
+      } finally {
+        await guard.close()
+      }
+    })
+
+    it('remembers a run it takes, so a restart after the rules change keeps it', async () => {
+      const path = relayDb()
+      const mine = made(sk, day, Math.floor(Date.now() / 1000))
+      const before = await guardOver(path, [], updated(path, {}))
+      try {
+        expect(await ask(before.port, mine)).toBe(1)
+      } finally {
+        await before.close()
+      }
+      store(path, mine, mine.created_at) // as the relay does, having heard yes
+      const lines: string[] = []
+      const after = await guardOver(path, lines, updated(path, { deal: newRules }))
+      try {
+        await after.sweep()
+        expect(stored(path)).toEqual(new Set([mine.id]))
+        expect(lines).toEqual(['sweep: 1 run checked, 0 failed'])
+      } finally {
+        await after.close()
+      }
+    })
+
+    it('deletes one whose streak rested on a run the sweep deletes', async () => {
+      const path = relayDb()
+      store(path, made(sk, yesterday, y + 7200), t + 700) // stored while the guard was away, a day late
+      const next = made(sk, day, t + 800, { streak: 2 }) // taken while that run was there
+      const first = made(otherSk, day, t + 900) // taken: a first day, resting on nothing
+      store(path, next, t + 805)
+      store(path, first, t + 905)
+      took(path, next, first)
+      const lines: string[] = []
+      const guard = await guardOver(path, lines, policyOver(path))
+      try {
+        await guard.sweep()
+        expect(stored(path)).toEqual(new Set([first.id]))
+        expect(lines).toEqual([
+          "sweep: 3 runs checked, 2 failed (1× this run wasn't made just now (is your clock right?); 1× a 2-day streak needs a 1-day streak the day before)",
+        ])
+      } finally {
+        await guard.close()
+      }
+    })
+
+    it('deletes one that comes back after its key asked to vanish', async () => {
+      const path = relayDb()
+      const now = Math.floor(Date.now() / 1000)
+      const gone = made(sk, yesterday, y + 3600)
+      took(path, gone)
+      // Three hours ago: further back than the sweeps after the first look.
+      store(path, finalizeEvent({ kind: 62, created_at: now - 3 * 3600, tags: [['relay', HOME]], content: '' }, sk), now - 3 * 3600)
+      const lines: string[] = []
+      const guard = await guardOver(path, lines)
+      try {
+        await guard.sweep()
+        store(path, gone, now) // uploaded again while the relay wasn't asking the guard
+        await guard.sweep()
+        expect(stored(path).has(gone.id)).toBe(false)
+        expect(lines.at(-1)).toBe('sweep: 1 run checked, 1 failed (1× this key asked this relay to delete its events)')
+      } finally {
+        await guard.close()
+      }
+    })
+
+    it('forgets them once they are deleted: by clean-up, or because their key asked to vanish', async () => {
+      const path = relayDb()
+      const now = Math.floor(Date.now() / 1000)
+      const thirdSk = generateSecretKey()
+      const vanish = (who: Uint8Array) => finalizeEvent({ kind: 62, created_at: now, tags: [['relay', HOME]], content: '' }, who)
+      const old = made(otherSk, dayOf(new Date((now - 31 * 86400) * 1000)), now - 31 * 86400) // clean-up has deleted it
+      const gone = made(sk, yesterday, y + 3600) // its key asks while the guard is away
+      const asked = made(thirdSk, yesterday, y + 3600) // its key asks through the relay
+      const kept = made(otherSk, day, t + 600)
+      store(path, gone, y + 3605)
+      store(path, asked, y + 3605)
+      store(path, kept, t + 605)
+      store(path, vanish(sk), now)
+      took(path, old, gone, asked, kept)
+      const guard = await guardOver(path, [])
+      try {
+        expect(await ask(guard.port, vanish(thirdSk))).toBe(1)
+        await guard.sweep() // carries out the request kept while it was away
+        guard.cleanup()
+        expect(remembers(path, old, gone, asked, kept)).toEqual([false, false, false, true])
+      } finally {
+        await guard.close()
+      }
+    })
+
+    it("judges every run in full when it can't open its record, and says so", async () => {
+      const path = relayDb()
+      mkdirSync(checkedRunsPath(path)) // a folder where the file should be
+      store(path, made(sk, twoDaysAgo, t + 800), t + 800) // a past day, played today
+      const lines: string[] = []
+      const guard = await guardOver(path, lines, policyOver(path))
+      try {
+        await guard.sweep()
+        expect(stored(path).size).toBe(0)
+        expect(lines[0]).toMatch(/^couldn't open .*silvamor-guard\.db, so every sweep judges every run in full: /)
+      } finally {
+        await guard.close()
+      }
+    })
   })
 })

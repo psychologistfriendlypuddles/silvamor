@@ -41,12 +41,15 @@ A small companion to relay.silvamor.com (nostr-rs-relay). It does these jobs:
   relay with nothing deleted; the sweep carries it out within a minute of the guard being back.
 - **Sweep.** While the guard can't be reached (restarting, say), the relay stores events unchecked.
   So every minute the guard carries out the requests to vanish stored in the last two hours (doing
-  one again deletes nothing more), and checks the runs stored then again, each as it reached
-  the relay (its `first_seen` time), and deletes the ones it would have refused: made on another
-  day, sent long after they were made, not replaying to their fees, or claiming a streak the day
-  before doesn't back, which also catches the streaks that rested on a deleted run. The first sweep
-  after the guard starts checks every stored run, which covers any time it was down and clears out
-  runs from before this check existed. Runs whose day it can't read yet are left for the next sweep.
+  one again deletes nothing more), and goes over the runs stored then, each as it reached the relay
+  (its `first_seen` time). A run it hasn't found valid before gets every check, and is deleted if it
+  fails one: made on another day, sent long after it was made, not replaying to its fees, or
+  claiming a streak the day before doesn't back. A run it has found valid, when it took it or in an
+  earlier sweep, isn't judged on those again, because the game's rules or the day's block may have
+  changed since: it's deleted only if its key has asked to vanish since, or the run its streak
+  extends is gone, which also catches the streaks that rested on a deleted run. The first sweep
+  after the guard starts goes over every stored run, which covers any time it was down. Runs whose
+  day it can't read yet are left for the next sweep.
 
 The boards take this relay's word for runs, so the guard refuses any run it can't check yet (no
 Bitcoin block source answering, the day's block not mined yet, or a bug), and the app offers to
@@ -55,6 +58,14 @@ one lookup at a time, and no run waits on that for more than 2.5 seconds. If the
 down, the relay admits events unchecked (still only the kinds its own allowlist accepts): nothing is
 lost, and a run made up meanwhile stays on the boards only until the sweep a minute after the guard
 is back.
+
+The guard remembers the runs it has found valid in `silvamor-guard.db`, beside the relay's
+database: only their ids and dates, no keys, each forgotten when clean-up deletes the run or its key
+asks to vanish. Keep that file with `nostr.db` when you back the relay up or move it. A guard that
+starts without it, or can't open it (it says so in its log), judges every stored run in full, by
+the game's rules as they are then. That's also how to judge every run again on purpose, after
+fixing a cheat, say: stop the guard, delete `silvamor-guard.db`, and start it with `DRY_RUN=true`
+to see what the sweep would delete.
 
 ## Run it
 
@@ -81,7 +92,7 @@ docker compose -f deploy/compose.yaml up -d --build
   (`cleanup (dry run, nothing deleted): kind 1952: 0, kind 1953: 0, kind 9735: 0, profiles, follow
   lists and relay lists of keys with no runs: 0`), and which runs
   the sweep would (`sweep (dry run, nothing deleted): 120 runs checked, 0 failed`). When the numbers
-  look right, set `DRY_RUN=false`. Back up `nostr.db` first.
+  look right, set `DRY_RUN=false`. Back up `nostr.db` and `silvamor-guard.db` first.
 
 ## Settings (environment variables)
 
@@ -93,7 +104,7 @@ docker compose -f deploy/compose.yaml up -d --build
 | `PER_IP_DAY` | `2000` | Events one IP address may publish per day, whatever keys it uses |
 | `PER_IP_DAY_MB` | `20` | Megabytes of events one IP address may have kept here per day (UTC), whatever keys it uses; runs and requests to vanish don't count |
 | `RELAY_URL` | `wss://relay.silvamor.com` | This relay's address, which requests to vanish must name (or `ALL_RELAYS`) |
-| `RELAY_DB` | none | The relay's SQLite file. Without it, there's no clean-up, no sweep and no requests to vanish |
+| `RELAY_DB` | none | The relay's SQLite file. Without it, there's no clean-up, no sweep and no requests to vanish. The guard keeps its record of runs, `silvamor-guard.db`, beside it |
 | `RETENTION` | `1952:30,1953:30,9735:30` | What to delete, as `kind:days` pairs: by default runs and tip receipts after 30 days, as the privacy policy promises (1952 clears the last runs of the retired Daily Deal). Change it only together with the policy |
 | `DRY_RUN` | `true` | `false` to actually delete; otherwise clean-up and the sweep only count |
 
