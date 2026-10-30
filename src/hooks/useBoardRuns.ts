@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { HOME_RELAY, pool } from '../lib/nostr/pool'
+import { HOME_RELAY, queryOrFail } from '../lib/nostr/pool'
 import { MINER_RUN_KIND, madeOnItsDay, parseMinerRun, type MinerRun } from '../lib/nostr/minerRuns'
 import { dayOf, previousDay } from '../games/day'
 
@@ -7,11 +7,12 @@ import { dayOf, previousDay } from '../games/day'
  * Runs on these days from Silvamor's relay, by `authors` (or everyone): each player's first run of
  * each day (the one that counts). The relay replays every run against its day's transactions before
  * keeping it (and checks its streak), so boards take its scores as they are, leaving out only runs
- * not made on their day. Null while loading; with `refreshMs`, asked again that often.
+ * not made on their day. Null while loading, 'unreachable' when the relay didn't answer (so it isn't
+ * shown as nobody playing); with `refreshMs`, asked again that often.
  */
-export function useBoardRuns(days: string[], authors?: string[], refreshMs?: number): MinerRun[] | null {
+export function useBoardRuns(days: string[], authors?: string[], refreshMs?: number): BoardRuns {
   const key = `${days.join(',')}|${authors ? [...authors].sort().join(',') : '*'}`
-  const [state, setState] = useState<{ key: string; runs: MinerRun[] | null }>({ key: '', runs: null })
+  const [state, setState] = useState<{ key: string; runs: BoardRuns }>({ key: '', runs: null })
   const [round, setRound] = useState(0)
   useEffect(() => {
     if (!refreshMs) return
@@ -26,7 +27,7 @@ export function useBoardRuns(days: string[], authors?: string[], refreshMs?: num
     const filters = who
       ? Array.from({ length: Math.ceil(who.length / 500) }, (_, i) => ({ kinds: [MINER_RUN_KIND], authors: who.slice(i * 500, i * 500 + 500), '#l': wanted }))
       : [{ kinds: [MINER_RUN_KIND], '#l': wanted }]
-    Promise.all(filters.map((f) => pool.querySync([HOME_RELAY], f, { maxWait: 8000 })))
+    Promise.all(filters.map((f) => queryOrFail(HOME_RELAY, f)))
       .then((found) => {
         if (cancelled) return
         const first = new Map<string, MinerRun>()
@@ -38,13 +39,18 @@ export function useBoardRuns(days: string[], authors?: string[], refreshMs?: num
         }
         setState({ key, runs: [...first.values()] })
       })
-      .catch(() => !cancelled && setState({ key, runs: [] }))
+      .catch(() => !cancelled && setState({ key, runs: 'unreachable' }))
     return () => {
       cancelled = true
     }
   }, [key, round])
   return state.key === key ? state.runs : null
 }
+
+export type BoardRuns = MinerRun[] | null | 'unreachable'
+
+/** What boards say when Silvamor's relay didn't answer. */
+export const UNREACHABLE_NOTE = "Couldn't reach Silvamor's relay. Reload to try again."
 
 /** The last `n` days, today first. */
 export function lastDays(n: number): string[] {

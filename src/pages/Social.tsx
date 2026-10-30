@@ -10,7 +10,7 @@ import { readRelays, useRelays } from '../stores/relays'
 import { useLoadGroups } from '../hooks/useLoadGroups'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { DEFAULT_RELAYS, pool } from '../lib/nostr/pool'
-import { feeTotals, lastDays, useBoardRuns, WINDOWS, type Window } from '../hooks/useBoardRuns'
+import { feeTotals, lastDays, UNREACHABLE_NOTE, useBoardRuns, WINDOWS, type Window } from '../hooks/useBoardRuns'
 import { GAME_TAG, sats } from '../games/miner/share'
 
 type Tab = 'feed' | 'scores' | 'streaks'
@@ -150,13 +150,13 @@ function TopScores() {
 
   const rows = useMemo(
     (): Ranked[] =>
-      feeTotals(runs ?? [])
+      feeTotals(Array.isArray(runs) ? runs : [])
         .slice(0, 50)
         .map((t) => ({ author: t.author, value: sats(t.fees) })),
     [runs],
   )
   // Today's scores are a target, so they stay hidden until you've played (as on the game page).
-  const playedToday = (runs ?? []).some((r) => r.author === pubkey && r.day === today)
+  const playedToday = Array.isArray(runs) && runs.some((r) => r.author === pubkey && r.day === today)
 
   return (
     <Card className="flex flex-col gap-3">
@@ -168,6 +168,8 @@ function TopScores() {
         <div className="flex justify-center py-8">
           <Spinner />
         </div>
+      ) : runs === 'unreachable' ? (
+        <p className="py-6 text-center text-sm text-white/50">{UNREACHABLE_NOTE}</p>
       ) : span === '1' && !playedToday ? (
         <p className="py-6 text-center text-sm text-white/50">Mine today's block to see today's top scores.</p>
       ) : (
@@ -185,7 +187,7 @@ function TopStreaks() {
   const rows = useMemo((): Ranked[] => {
     // A streak is alive if it reached today, or yesterday (today's block can still extend it).
     const best = new Map<string, { days: number; at: number }>()
-    for (const run of runs ?? []) {
+    for (const run of Array.isArray(runs) ? runs : []) {
       const other = best.get(run.author)
       if (!other || run.streak > other.days || (run.streak === other.days && run.createdAt < other.at)) best.set(run.author, { days: run.streak, at: run.createdAt })
     }
@@ -202,6 +204,8 @@ function TopStreaks() {
         <div className="flex justify-center py-8">
           <Spinner />
         </div>
+      ) : runs === 'unreachable' ? (
+        <p className="py-6 text-center text-sm text-white/50">{UNREACHABLE_NOTE}</p>
       ) : (
         <PodiumBoard rows={rows} me={pubkey} empty="No streaks yet." />
       )}

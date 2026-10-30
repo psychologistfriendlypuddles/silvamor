@@ -12,7 +12,7 @@ import { FriendPicker } from '../components/FriendPicker'
 import { Modal } from '../components/Modal'
 import { Button, Card, Field, PageTitle, Spinner, Switch } from '../components/ui'
 import { RankedList, type Ranked } from '../components/DayGame'
-import { feeTotals, lastDays, useBoardRuns, WINDOWS, type Window } from '../hooks/useBoardRuns'
+import { feeTotals, lastDays, UNREACHABLE_NOTE, useBoardRuns, WINDOWS, type Window } from '../hooks/useBoardRuns'
 import { sats } from '../games/miner/share'
 import { useLoadGroups } from '../hooks/useLoadGroups'
 import { PlayerSheet } from '../components/PlayerSheet'
@@ -141,9 +141,9 @@ function Standings({ league }: { league: Group }) {
   const days = useMemo(() => lastDays(Number(span)), [span])
   const players = useMemo(() => [...new Set([pubkey, ...league.members])], [pubkey, league.members])
   const runs = useBoardRuns(days, players)
-  const rows = useMemo((): Ranked[] => feeTotals(runs ?? []).map((t) => ({ author: t.author, value: sats(t.fees), streak: t.streak })), [runs])
+  const rows = useMemo((): Ranked[] => feeTotals(Array.isArray(runs) ? runs : []).map((t) => ({ author: t.author, value: sats(t.fees), streak: t.streak })), [runs])
   // Today's scores are a target, so they stay hidden until you've played (as everywhere).
-  const playedToday = (runs ?? []).some((r) => r.author === pubkey && r.day === days[0])
+  const playedToday = Array.isArray(runs) && runs.some((r) => r.author === pubkey && r.day === days[0])
 
   return (
     <Card className="flex flex-col gap-3">
@@ -156,6 +156,8 @@ function Standings({ league }: { league: Group }) {
         <div className="flex justify-center py-8">
           <Spinner />
         </div>
+      ) : runs === 'unreachable' ? (
+        <p className="py-6 text-center text-sm text-white/50">{UNREACHABLE_NOTE}</p>
       ) : span === '1' && !playedToday ? (
         <p className="py-6 text-center text-sm text-white/50">Mine today's block to see today's standings.</p>
       ) : (

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { Modal } from '../../components/Modal'
 import { Spinner } from '../../components/ui'
-import { lastDays, useBoardRuns } from '../../hooks/useBoardRuns'
+import { lastDays, UNREACHABLE_NOTE, useBoardRuns } from '../../hooks/useBoardRuns'
 import type { Block } from '../../lib/bitcoin'
 import { dayEndsLocally, dayStart, fetchDayBlock } from '../day'
 
@@ -15,12 +15,13 @@ const players = (n: number) => `${n.toLocaleString('en-US')} player${n === 1 ? '
 export function GameInfo({ day, block }: { day: string; block: Block }) {
   const runs = useBoardRuns([day], undefined, 60_000)
   const [open, setOpen] = useState(false)
-  const count = runs ? new Set(runs.map((r) => r.author)).size : null
+  const count = Array.isArray(runs) ? new Set(runs.map((r) => r.author)).size : runs
 
   return (
     <div className="mb-5 flex flex-col items-center gap-1 text-center text-sm text-white/55">
       <p>
-        Current block {block.height.toLocaleString('en-US')} has {count === null ? '…' : players(count)}
+        Current block {block.height.toLocaleString('en-US')}
+        {count === 'unreachable' ? " (couldn't reach Silvamor's relay to count its players)" : ` has ${count === null ? '…' : players(count)}`}
         <span className="mx-2 text-white/30" aria-hidden>
           •
         </span>
@@ -56,7 +57,7 @@ function LastGames({ onClose }: { onClose(): void }) {
 
   const counts = useMemo(() => {
     const seen = new Map<string, Set<string>>()
-    for (const r of runs ?? []) seen.set(r.day, (seen.get(r.day) ?? new Set()).add(r.author))
+    for (const r of Array.isArray(runs) ? runs : []) seen.set(r.day, (seen.get(r.day) ?? new Set()).add(r.author))
     return seen
   }, [runs])
   const starts = new Date(dayStart(days[0]) * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -89,11 +90,12 @@ function LastGames({ onClose }: { onClose(): void }) {
                 {i === 0 && <span className="ml-2 text-xs text-white/45">today</span>}
               </td>
               <td className="py-2 text-right tabular-nums">{day in blocks ? (blocks[day]?.height.toLocaleString('en-US') ?? '–') : '…'}</td>
-              <td className="py-2 text-right tabular-nums">{runs === null ? <Spinner className="ml-auto size-4" /> : (counts.get(day)?.size ?? 0).toLocaleString('en-US')}</td>
+              <td className="py-2 text-right tabular-nums">{runs === null ? <Spinner className="ml-auto size-4" /> : runs === 'unreachable' ? '–' : (counts.get(day)?.size ?? 0).toLocaleString('en-US')}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      {runs === 'unreachable' && <p className="text-sm text-white/50">{UNREACHABLE_NOTE}</p>}
     </div>
   )
 }

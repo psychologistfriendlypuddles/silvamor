@@ -1,4 +1,6 @@
 import { SimplePool } from 'nostr-tools/pool'
+import type { Event } from 'nostr-tools/pure'
+import type { Filter } from 'nostr-tools/filter'
 
 // One shared pool for the whole app so relay connections are reused.
 export const pool = new SimplePool({ enablePing: true, enableReconnect: true })
@@ -40,6 +42,36 @@ export function normalizeRelayUrl(input: string): string | null {
     return parsed.toString().replace(/\/$/, '')
   } catch {
     return null
+  }
+}
+
+/**
+ * The events matching `filter` on `relay`, failing when it doesn't answer within `maxWait` ms.
+ * `pool.querySync` resolves with nothing then, as if there were none, so a lost connection looked
+ * like a day nobody played.
+ */
+export async function queryOrFail(relay: string, filter: Filter, maxWait = 8000): Promise<Event[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let sub: { close(): void } | undefined
+  const timeout = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error(`${relay} didn't answer`)), maxWait)))
+  try {
+    const r = await Promise.race([pool.ensureRelay(relay, { connectionTimeout: maxWait }), timeout])
+    return await Promise.race([
+      new Promise<Event[]>((resolve, reject) => {
+        const events: Event[] = []
+        sub = r.subscribe([filter], {
+          onevent: (e) => events.push(e),
+          // Only the relay's own end of stored events: its timeout (by default the sub's) is ours instead.
+          eoseTimeout: maxWait * 2,
+          oneose: () => resolve(events),
+          onclose: (reason) => reject(new Error(`${relay}: ${reason}`)),
+        })
+      }),
+      timeout,
+    ])
+  } finally {
+    clearTimeout(timer)
+    sub?.close()
   }
 }
 
