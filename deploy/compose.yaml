@@ -34,6 +34,8 @@ services:
     build:
       context: ..
       dockerfile: guard/Dockerfile
+      # Fetches the newest Node 24 image on every build, so rebuilding brings Node and Alpine fixes.
+      pull: true
     restart: unless-stopped
     # The relay image's appuser, which owns the database: the guard deletes old events from it.
     user: '1000:1000'

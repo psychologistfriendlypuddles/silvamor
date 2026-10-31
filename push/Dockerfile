@@ -1,5 +1,7 @@
 # Silvamor push service. Build from the repository root:
-#   docker build -f push/Dockerfile -t silvamor-push .
+#   docker build --pull -f push/Dockerfile -t silvamor-push .
+# node:24-alpine on purpose, not pinned: --pull fetches its newest release on every build, so
+# rebuilding brings Node and Alpine fixes.
 FROM node:24-alpine AS build
 WORKDIR /src
 COPY package.json package-lock.json ./

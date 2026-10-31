@@ -98,7 +98,8 @@ To open it to everyone without it filling up with unrelated notes, run it with
 [`deploy/compose.yaml`](../deploy/compose.yaml): nostr-rs-relay with the
 [relay guard](../guard/README.md) beside it, configured from
 [`deploy/nostr-rs-relay.toml`](../deploy/nostr-rs-relay.toml). Both restart unless stopped, and
-the guard has a Docker health check.
+the guard has a Docker health check. Each rebuild (`up -d --build`) fetches the newest Node 24 image
+for the guard, so rebuild now and then, e.g. after a Node security release, to pick up its fixes.
 
 | Layer | What it does |
 |-------|--------------|
@@ -125,7 +126,8 @@ with many addresses can still add that much from each.
 
 Streak reminders come from the push service in `push/` (see
 [push/README.md](../push/README.md)): run it (Docker image or `npm run push:start`) and give it its
-own proxy host in Nginx Proxy Manager, e.g. `push.silvamor.com` with Force SSL. Build the app with
+own proxy host in Nginx Proxy Manager, e.g. `push.silvamor.com` with Force SSL; rebuild its image
+(with `--pull`) now and then too. Build the app with
 `VITE_PUSH_URL=https://push.silvamor.com` so players get it by default (they can pick another one
 on the Reminders page). Keep its data directory: losing `vapid.json` invalidates every subscription.
 

@@ -25,7 +25,7 @@ npm run push:start
 Or with Docker (from the repository root):
 
 ```sh
-docker build -f push/Dockerfile -t silvamor-push .
+docker build --pull -f push/Dockerfile -t silvamor-push .
 docker run -d --name silvamor-push -p 8787:8787 -v silvamor-push:/data \
   -e APP_URL=https://www.silvamor.com -e PUBLIC_URL=https://push.silvamor.com \
   -e VAPID_SUBJECT=mailto:you@example.com silvamor-push

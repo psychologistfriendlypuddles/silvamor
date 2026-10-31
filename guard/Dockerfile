@@ -1,5 +1,7 @@
 # Silvamor relay guard. Build from the repository root:
-#   docker build -f guard/Dockerfile -t silvamor-guard .
+#   docker build --pull -f guard/Dockerfile -t silvamor-guard .
+# node:24-alpine on purpose, not pinned: --pull (`pull: true` in deploy/compose.yaml) fetches its
+# newest release on every build, so rebuilding brings Node and Alpine fixes.
 FROM node:24-alpine AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
