@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { mkdtempSync } from 'node:fs'
+import { createServer, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import webpush from 'web-push'
@@ -15,6 +16,7 @@ import { startService, webPushSender } from '../src/server'
 
 const RELAY_PORT = 7811
 const SERVICE_PORT = 8811
+const SILENT_PORT = 7812
 const SERVICE = `http://localhost:${SERVICE_PORT}`
 const subscription = (n: number) => ({ endpoint: `https://push.example/sub/${n}`, keys: { p256dh: 'p', auth: 'a' } })
 
@@ -195,6 +197,34 @@ describe('watchtower', () => {
       'push ok: 🔥 Your 5-day streak ends in 3 hours. Play today to keep it going.',
     ])
     expect(most).toBe(2) // both players at once
+  })
+
+  it("isn't stopped by relays that can't be reached, whether they refuse or take the connection and never answer", { timeout: 15_000 }, async () => {
+    clock = (dayStart(day) + 21 * 3600) * 1000
+    const own = new Store(':memory:')
+    const keeperSk = generateSecretKey()
+    await publish(keeperSk, runEvent(yesterday, 7))
+    own.addSubscription(getPublicKey(keeperSk), { endpoint: 'https://push.example/keeper', keys: { p256dh: 'p', auth: 'a' } })
+    // A relay that takes the connection and never answers, as one stuck behind its proxy.
+    const held: Socket[] = []
+    const silent = createServer((socket) => held.push(socket)).listen(SILENT_PORT)
+    const lines: string[] = []
+    const tower = createWatchtower({
+      relays: [relay.url, 'ws://127.0.0.1:1', `ws://localhost:${SILENT_PORT}`],
+      store: own,
+      send: async () => 'ok',
+      appUrl: 'https://app.example',
+      every: 0,
+      now: () => clock,
+      log: (m) => lines.push(m),
+    })
+    // Neither may end the service: an error nothing handles ends a Node process (here, it fails the run).
+    await tower.tick()
+    tower.close()
+    own.close()
+    held.forEach((socket) => socket.destroy())
+    silent.close()
+    expect(lines).toEqual(['push ok: 🔥 Your 7-day streak ends in 3 hours. Play today to keep it going.'])
   })
 
   it('sends only to push services, also to subscriptions kept from before they were checked', async () => {

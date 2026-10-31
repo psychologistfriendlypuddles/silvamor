@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { createServer, type Socket } from 'node:net'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import { Relay } from 'nostr-tools/relay'
 import { startDevRelay, type DevRelay } from './dev-relay.mjs'
@@ -38,6 +39,17 @@ describe('daily deal stats', () => {
     expect(stats.perDay).toHaveLength(7)
     expect(stats.perDay.at(-1)).toEqual({ day: day(now), players: 2, topScore: 500 })
     expect(stats.perDay.at(-3)).toEqual({ day: day(now - 2 * 86400), players: 1, topScore: 200 })
+  })
+
+  it("still counts when other relays can't be reached, whether they refuse or take the connection and never answer", async () => {
+    // A relay that takes the connection and never answers, as one stuck behind its proxy.
+    const held: Socket[] = []
+    const silent = createServer((socket) => held.push(socket)).listen(7792)
+    // Neither may end the script: an error nothing handles ends a Node process (here, it fails the run).
+    const stats = await collectStats({ relays: [relay.url, 'ws://127.0.0.1:1', 'ws://localhost:7792'], days: 1, now, maxWait: 2000 })
+    held.forEach((socket) => socket.destroy())
+    silent.close()
+    expect(stats.perDay).toEqual([{ day: day(now), players: 2, topScore: 500 }])
   })
 
   it('leaves out days before the window', async () => {

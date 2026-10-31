@@ -1,10 +1,14 @@
-import { SimplePool } from 'nostr-tools/pool'
+import { SimplePool, useWebSocketImplementation as setWebSocketImplementation } from 'nostr-tools/pool'
+import { RelaySocket } from '../../scripts/relay-socket.mjs'
 import { MINER_RUN_KIND, madeOnItsDay, parseMinerRun, type MinerRun } from '../../src/lib/nostr/minerRuns'
 import { dayOf, dayStart, previousDay } from '../../src/games/day'
 import type { PushSubscriptionData, Store } from './store'
 
 // Streak reminders: a few hours before the day ends (midnight UTC), subscribers whose streak
 // reached yesterday and who haven't played today get one push.
+
+// A relay that can't be reached mustn't end the service, as it can with Node's own WebSocket.
+setWebSocketImplementation(RelaySocket)
 
 export interface PushPayload {
   title: string

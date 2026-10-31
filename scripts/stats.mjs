@@ -8,7 +8,11 @@
 // Scores are as claimed, not replayed (the app checks them; this is only a head count).
 // Relays may drop old events, so this is reliable for recent weeks rather than all time.
 import { fileURLToPath } from 'node:url'
-import { SimplePool } from 'nostr-tools/pool'
+import { SimplePool, useWebSocketImplementation } from 'nostr-tools/pool'
+import { RelaySocket } from './relay-socket.mjs'
+
+// A relay that can't be reached mustn't end the script, as it can with Node's own WebSocket.
+useWebSocketImplementation(RelaySocket)
 
 // Every run goes to Silvamor's relay, whatever relays a player uses.
 export const DEFAULT_RELAYS = ['wss://relay.silvamor.com']
