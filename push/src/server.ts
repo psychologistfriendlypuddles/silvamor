@@ -145,6 +145,14 @@ export function startService(config: ServiceConfig, deps: { store?: Store; watch
       if (req.method === 'GET' && path === '/health') return send(res, 200, { ok: true, subscribers: store.pubkeys().length })
       if (req.method === 'GET' && path === '/vapid-public-key') return send(res, 200, vapidPublicKey)
 
+      // Whether a browser is still signed up (players are let go after 30 days without a game), so the
+      // app can sign it up again after its next one. Knowing the push address is enough to ask.
+      if (req.method === 'POST' && path === '/subscriptions/check') {
+        const body = (await readJson(req)) as { endpoint?: unknown }
+        if (typeof body.endpoint !== 'string') return send(res, 400, { error: 'Missing endpoint.' })
+        return send(res, 200, { subscribed: store.hasSubscription(body.endpoint) })
+      }
+
       if (path === '/subscriptions' && (req.method === 'POST' || req.method === 'DELETE')) {
         const body = (await readJson(req)) as { subscription?: unknown; endpoint?: unknown }
         const pubkey = await authorize(req, `${config.publicUrl}${path}`, req.method, body)
@@ -153,6 +161,11 @@ export function startService(config: ServiceConfig, deps: { store?: Store; watch
         if (req.method === 'POST') {
           if (!isSubscription(body.subscription)) return send(res, 400, { error: 'Missing or invalid push subscription.' })
           if (!onPushHost(body.subscription.endpoint, config.pushHosts)) return send(res, 400, { error: "This push server doesn't send to your browser's push service." })
+          // Reminders are for keeping a streak, so only players sign up: each key costs a game the
+          // relay took, not just a signature.
+          const played = await watchtower.hasPlayed(pubkey)
+          if (played === null) return send(res, 503, { error: "Couldn't reach the relay to check that you've played. Try again in a moment." })
+          if (!played) return send(res, 403, { error: "Reminders are for keeping a streak, so play today's block first, then turn them on." })
           store.addSubscription(pubkey, body.subscription)
           return send(res, 201, { ok: true })
         }

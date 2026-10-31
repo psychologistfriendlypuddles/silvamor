@@ -67,6 +67,26 @@ export async function enablePush(pubkey: string, server: string, signer: AppSign
   localStorage.setItem(enabledKey(pubkey), 'yes')
 }
 
+/**
+ * After a game: if reminders are on in this browser but the push service has let them go (it does
+ * after 30 days without a game), signs this browser up again. Asking needs no signature, so the
+ * player is only asked to sign when it's needed.
+ */
+export async function renewPush(pubkey: string, signer: AppSigner) {
+  const server = savedPushServer(pubkey)
+  if (!server || !(await isPushEnabled(pubkey))) return
+  const subscription = await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription()
+  if (!subscription) return
+  const res = await fetch(`${server}/subscriptions/check`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint: subscription.endpoint }),
+  })
+  // A push server that can't say (an older one) is left alone.
+  if (!res.ok || ((await res.json()) as { subscribed?: unknown }).subscribed !== false) return
+  await signedRequest(`${server}/subscriptions`, 'POST', { subscription: subscription.toJSON() }, signer)
+}
+
 export async function disablePush(pubkey: string, server: string, signer: AppSigner) {
   const registration = await navigator.serviceWorker.getRegistration()
   const subscription = await registration?.pushManager.getSubscription()

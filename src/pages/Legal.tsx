@@ -15,7 +15,7 @@ function NostrContact({ children = 'message us on Nostr' }: { children?: ReactNo
     </a>
   )
 }
-const EFFECTIVE = 'October 28, 2026'
+const EFFECTIVE = 'October 31, 2026'
 const SITE = 'www.silvamor.com'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -271,9 +271,11 @@ export function PrivacyPage({ standalone }: { standalone?: boolean }) {
             type). We use these only to run and protect the site, and keep them for a short time.
           </li>
           <li>
-            <b>Streak reminders (optional).</b> If you turn them on, the push service stores your public key, your browser’s push address, and the
-            days it has already reminded you. To decide when to remind you, it reads your public game runs. Your browser’s push provider (such as
-            Google, Apple or Mozilla) delivers the reminders. Turning reminders off deletes your push address.
+            <b>Streak reminders (optional).</b> You can turn them on once you’ve played. The push service then stores your public key, your
+            browser’s push address, when it last checked your runs and last saw you play, and the days it has reminded you (for two days). To
+            decide when to remind you, it reads your public game runs. Your browser’s push provider (such as Google, Apple or Mozilla) delivers
+            the reminders. Turning reminders off deletes your push address, and so do 30 days without a game; your next game in that browser turns
+            them back on.
           </li>
           <li>
             <b>Our relay.</b> Silvamor always publishes your game runs, profile, follow list, relay list, leagues, sprites, sprite choices,

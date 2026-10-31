@@ -18,6 +18,7 @@ import { MINER_RUN_KIND, buildMinerRun, confirmedStreak, countedMinerRuns, nextS
 import { useStreaks } from '../hooks/useStreaks'
 import type { Block } from '../lib/bitcoin'
 import { markShareOffered, shareOffered } from '../lib/shareOffer'
+import { renewPush } from '../lib/push'
 import { dayOf } from '../games/day'
 import { MinerBoard } from '../games/miner/Board'
 import { GameInfo } from '../games/miner/GameInfo'
@@ -164,6 +165,8 @@ function Run({ day, block, deal }: { day: string; block: Block; deal: MinerDeal 
       await publishRun(event)
       add(event)
       setPublishing('idle')
+      // Reminders the push service let go while the player was away come back with this game.
+      void renewPush(pubkey, signer).catch(() => {})
       if (!shareOffered('miner', pubkey, day)) setSharing(true)
     } catch (err) {
       setPublishing('failed')
