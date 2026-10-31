@@ -25,6 +25,15 @@ export async function seed(...events: { sk: Uint8Array; template: EventTemplate 
   relay.close()
 }
 
+/**
+ * Has the test relay leave subscriptions for `kind` (labelled `label`, if given) unanswered for `ms`,
+ * as a relay that's down or too slow would; 0 ends that.
+ */
+export async function holdRelay(kind: number, ms: number, label?: string) {
+  const query = new URLSearchParams({ kind: String(kind), ms: String(ms), ...(label ? { label } : {}) })
+  await fetch(`http://localhost:7777/hold?${query}`, { method: 'POST' })
+}
+
 const nowSec = () => Math.floor(Date.now() / 1000)
 
 /** A Lightning address on the test relay's pretend Lightning provider. */

@@ -211,7 +211,12 @@ function Run({ day, block, deal }: { day: string; block: Block; deal: MinerDeal 
       <Summary deal={deal} state={shown} block={block} sprite={sprite} streak={myStreak} />
       {!mine && (
         <p className="flex items-center justify-center gap-2 text-sm text-white/60">
-          {publishing === 'failed' ? (
+          {/* The run waits for the day before's streak: without it, it would claim a first day. */}
+          {yesterday.unreachable ? (
+            <>
+              <Spinner className="size-4" /> Couldn't reach Silvamor's relay to check your streak. Trying again…
+            </>
+          ) : publishing === 'failed' && yesterday.loaded ? (
             <Button variant="secondary" icon={<RotateCw className="size-4" />} onClick={publish}>
               Publish my block
             </Button>

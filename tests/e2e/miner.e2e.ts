@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Relay } from 'nostr-tools/relay'
-import { RELAY, expectNoErrors, followsEvent, login, newPlayer, profileEvent, publishMinerRun, publishRun, seed, today, todaysDeal } from './helpers'
+import { RELAY, expectNoErrors, followsEvent, holdRelay, login, newPlayer, profileEvent, publishMinerRun, publishRun, seed, today, todaysDeal } from './helpers'
 import { blocked, encodeMoves, minerFees, minerMoves, minerRules, type MinerMove } from '../../src/games/miner/rules'
 import { shortSats } from '../../src/games/miner/share'
 
@@ -116,4 +116,33 @@ test('block of the day: take or pass until the block is found, then a streak and
   // Runs name nobody: there are no "beat your block" notices.
   expect(runs[0].tags.some((t) => t[0] === 'p')).toBe(false)
   expectNoErrors(alice)
+})
+
+test("a streak outlasts Silvamor's relay not answering: the run waits until it can tell", async ({ browser }) => {
+  const { deal } = await todaysDeal()
+  // Carol played yesterday, the second day of her streak.
+  const carol = await newPlayer(browser, 'Carol')
+  await publishRun(carol.sk, { daysAgo: 1, streak: 2, fees: 1 })
+  // Yesterday's runs get no answer, as from a relay that's down when the game opens, until it's seen.
+  await holdRelay(1953, 60_000, new Date(Date.now() - 86400_000).toISOString().slice(0, 10))
+  const { page } = carol
+  try {
+    await login(carol)
+    for (const move of minerMoves(deal)) await page.getByRole('button', { name: move === 'take' ? 'Take' : 'Pass' }).click()
+    // Her block is done, but her run waits: sent now, it would claim a first day and end her streak.
+    await expect(page.getByText("Couldn't reach Silvamor's relay to check your streak. Trying again…")).toBeVisible({ timeout: 20_000 })
+  } finally {
+    await holdRelay(1953, 0)
+  }
+  // Once the relay answers, it goes out as the third day, and the note is offered.
+  await expect(page.getByText('🔥 3-day streak', { exact: true })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('button', { name: 'Not now' })).toBeVisible()
+  const relay = await Relay.connect(RELAY)
+  const runs = await new Promise<{ tags: string[][] }[]>((resolve) => {
+    const found: { tags: string[][] }[] = []
+    const sub = relay.subscribe([{ kinds: [1953], authors: [carol.pubkey], '#l': [today()] }], { onevent: (e) => found.push(e), oneose: () => (sub.close(), resolve(found)) })
+  })
+  relay.close()
+  expect(runs.map((r) => r.tags.find((t) => t[0] === 'streak')?.[1])).toEqual(['3'])
+  expectNoErrors(carol)
 })

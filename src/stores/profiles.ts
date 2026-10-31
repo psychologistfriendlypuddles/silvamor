@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { Event } from 'nostr-tools/pure'
-import { DISCOVERY_RELAYS, pool, publishTo } from '../lib/nostr/pool'
+import { DISCOVERY_RELAYS, pool, publishTo, queryOrFail } from '../lib/nostr/pool'
 import { buildProfileEvent, parseProfile, verifyNip05, type ProfileContent } from '../lib/nostr/profile'
 import type { AppSigner } from '../lib/nostr/signers'
 
@@ -64,12 +64,18 @@ export const useProfiles = create<ProfileState>((set, get) => {
 
     async save(signer, pubkey, edits, relays) {
       if (!get().profiles[pubkey]) {
-        // Not having a profile cached may just mean slow relays. Look once more, harder,
-        // before publishing something that would replace the user's real profile.
-        const existing = await pool.querySync([...new Set([...DISCOVERY_RELAYS, ...relays])], { kinds: [0], authors: [pubkey] }, { maxWait: 8000 })
-        existing.forEach(remember)
+        // Not having a profile cached may just mean slow relays. Look once more, harder, before
+        // publishing something that would replace the user's real profile everywhere: on every relay
+        // it goes to, each of which has to answer, since one that doesn't may be holding it.
+        const targets = [...new Set([...DISCOVERY_RELAYS, ...relays])]
+        const answers = await Promise.allSettled(targets.map((relay) => queryOrFail(relay, { kinds: [0], authors: [pubkey] })))
+        for (const answer of answers) if (answer.status === 'fulfilled') answer.value.forEach(remember)
         if (get().profiles[pubkey]) {
           throw new Error('Found your existing profile on the relays and loaded it. Check the form, then save again.')
+        }
+        const silent = targets.filter((_, i) => answers[i].status === 'rejected').map((r) => r.replace(/^wss?:\/\//, ''))
+        if (silent.length) {
+          throw new Error(`Couldn't reach ${silent.join(', ')} to check for a profile you already have, so nothing was saved: it could have replaced it. Try again in a moment.`)
         }
       }
       const previous = get().profiles[pubkey]?.content ?? {}

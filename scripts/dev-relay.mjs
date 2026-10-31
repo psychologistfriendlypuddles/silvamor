@@ -1,5 +1,6 @@
 // Minimal in-memory Nostr relay for local development and end-to-end tests.
 // Usage: npm run relay   (then start the app with VITE_RELAYS=ws://localhost:7777)
+// Any path is the relay, and describes itself (NIP-11) to a request for application/nostr+json.
 //
 // It also fakes a Bitcoin block source (the day's seed block, and its transactions):
 //   GET  /api/blocks/tip/height   -> current height (start the app with
@@ -18,6 +19,10 @@
 //
 // And a pretend Blossom server (VITE_BLOSSOM_SERVER=http://localhost:7777) for uploads:
 //   PUT /upload -> stores the body;  GET /<sha256>.<ext> -> serves it
+//
+// And, for tests, a relay that doesn't answer:
+//   POST /hold?kind=K&label=L&ms=N -> for N ms, subscriptions asking for kind K (labelled L, if
+//                                     given) get no answer at all, not even the end of stored events
 //
 // Tests can also import it: `const relay = await startDevRelay({ port })`.
 import { createServer } from 'node:http'
@@ -62,6 +67,10 @@ function transaction(hash, i) {
 export function startDevRelay({ port = 7777, blockHeight = 800_000 } = {}) {
   const events = new Map() // id -> event
   const subs = new Map() // ws -> Map(subId -> filters)
+  /** Subscriptions left unanswered for now (POST /hold), as a relay that's down or too slow leaves them. */
+  let hold = null
+  const held = (filters) =>
+    !!hold && Date.now() < hold.until && filters.some((f) => f.kinds?.includes(hold.kind) && (!hold.label || f['#l']?.includes(hold.label)))
   let height = blockHeight
   // Blocks before the relay started came every 10 minutes; later ones when they were mined.
   const startedAt = Math.floor(Date.now() / 1000)
@@ -195,6 +204,10 @@ export function startDevRelay({ port = 7777, blockHeight = 800_000 } = {}) {
   const http = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost')
     res.setHeader('Access-Control-Allow-Origin', '*')
+    if (req.method === 'GET' && req.headers.accept?.includes('application/nostr+json')) {
+      res.setHeader('Content-Type', 'application/nostr+json')
+      return res.end(JSON.stringify({ name: 'Silvamor dev relay', supported_nips: [1, 11] }))
+    }
     if (lightning(req, res, url) !== false) return
     if (blossom(req, res, url) !== false) return
     if (req.method === 'GET' && url.pathname === '/api/blocks/tip/height') return res.end(String(height))
@@ -216,6 +229,10 @@ export function startDevRelay({ port = 7777, blockHeight = 800_000 } = {}) {
       return res.end(JSON.stringify(Array.from({ length: Math.max(0, Math.min(25, TX_COUNT - start)) }, (_, i) => transaction(txPage[1], start + i))))
     }
     if (req.method === 'POST' && url.pathname === '/mine') return res.end(String(mine(Number(url.searchParams.get('blocks') ?? 1))))
+    if (req.method === 'POST' && url.pathname === '/hold') {
+      hold = { kind: Number(url.searchParams.get('kind')), label: url.searchParams.get('label'), until: Date.now() + Number(url.searchParams.get('ms') ?? 0) }
+      return res.end('ok')
+    }
     res.statusCode = 404
     res.end()
   })
@@ -239,6 +256,7 @@ export function startDevRelay({ port = 7777, blockHeight = 800_000 } = {}) {
         if (isNew) broadcast(event)
       } else if (type === 'REQ') {
         const [subId, ...filters] = rest
+        if (held(filters)) return
         subs.get(ws).set(subId, filters)
         const limit = Math.min(...filters.map((f) => f.limit ?? Infinity))
         const matched = [...events.values()].filter((e) => matchFilters(filters, e)).sort((a, b) => b.created_at - a.created_at)

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { DEFAULT_RELAYS, DISCOVERY_RELAYS, GAME_RELAYS, HOME_RELAY, normalizeRelayUrl, pool, publishTo } from '../lib/nostr/pool'
+import { DEFAULT_RELAYS, DISCOVERY_RELAYS, GAME_RELAYS, HOME_RELAY, normalizeRelayUrl, pool, publishTo, queryOrFail } from '../lib/nostr/pool'
 import { RELAY_LIST_KIND, buildRelayListEvent, parseRelayList, type RelayEntry } from '../lib/nostr/relayList'
 import type { AppSigner } from '../lib/nostr/signers'
 
@@ -73,14 +73,20 @@ export const useRelays = create<RelayState>((set, get) => ({
 
   async save(signer, pubkey) {
     if (get().usingDefaults) {
-      // We may only be showing defaults because the user's list was slow to load.
-      // Never replace a real NIP-65 list without looking for it once more.
-      const existing = await pool.get(DISCOVERY_RELAYS, { kinds: [RELAY_LIST_KIND], authors: [pubkey] }, { maxWait: 8000 })
+      // We may only be showing defaults because the user's list was slow to load. Never replace a
+      // real NIP-65 list without looking for it once more: each relay that finds lists has to answer,
+      // since one that doesn't may be holding it.
+      const answers = await Promise.allSettled(DISCOVERY_RELAYS.map((relay) => queryOrFail(relay, { kinds: [RELAY_LIST_KIND], authors: [pubkey] })))
+      const existing = answers.flatMap((a) => (a.status === 'fulfilled' ? a.value : [])).sort((a, b) => b.created_at - a.created_at)[0]
       const found = existing ? parseRelayList(existing) : []
       if (found.length > 0) {
         localStorage.setItem(cacheKey(pubkey), JSON.stringify(found))
         set({ relays: found, published: found, usingDefaults: false })
         throw new Error('Found your existing relay list and loaded it instead. Make your changes again, then save.')
+      }
+      const silent = DISCOVERY_RELAYS.filter((_, i) => answers[i].status === 'rejected').map((r) => r.replace(/^wss?:\/\//, ''))
+      if (silent.length) {
+        throw new Error(`Couldn't reach ${silent.join(', ')} to check for a relay list you already have, so nothing was saved: it could have replaced it. Try again in a moment.`)
       }
     }
     const { relays, published } = get()
